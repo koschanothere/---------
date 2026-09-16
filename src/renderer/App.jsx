@@ -881,16 +881,17 @@ function PartialPaymentValue({ document, onCommit, readOnly = false }) {
 }
 
 function FileCell({ document, onReplace }) {
+  const hasFile = Boolean(document.original_filename);
   return (
     <div className="file-actions">
-      {document.original_filename ? (
+      {hasFile ? (
         <button className="file-link" type="button" onClick={() => api.openFile(document.file_path)} title={document.original_filename}>
           {document.original_filename}
         </button>
       ) : (
         <span className="muted">—</span>
       )}
-      <button className="icon-button" type="button" title="Заменить файл" onClick={onReplace}>
+      <button className="icon-button" type="button" title={hasFile ? "Заменить файл" : "Загрузить файл"} onClick={onReplace}>
         <Upload size={14} />
       </button>
     </div>

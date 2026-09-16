@@ -126,8 +126,15 @@ function registerIpc() {
 }
 
 app.whenReady().then(() => {
+  const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+  if (isDev) {
+    // Keep dev-mode data (including seeded demo data) out of the real production
+    // userData folder, which a packaged install also writes to under the same app name.
+    app.setPath("userData", path.join(path.dirname(app.getPath("userData")), "GureevDoc-dev"));
+  }
+
   store = createStore(app.getPath("userData"));
-  if (process.env.VITE_DEV_SERVER_URL) {
+  if (isDev) {
     store.seedDevelopmentData({ reset: process.env.GUREEVDOC_RESET_DEMO === "1" });
   }
   registerIpc();
