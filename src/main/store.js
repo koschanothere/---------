@@ -97,7 +97,7 @@ function createStore(userDataPath) {
       } else if (column === "is_ooo" || column === "is_ip") {
         result[column] = Number(row[column]) ? 1 : 0;
       } else {
-        result[column] = row[column] === "" ? null : row[column];
+        result[column] = row[column] === "" || row[column] === undefined ? null : row[column];
       }
     }
 
@@ -748,7 +748,10 @@ function createStore(userDataPath) {
     }, null, 2), "utf8"));
 
     for (const table of Object.keys(TABLE_COLUMNS)) {
-      const rows = tableRows(table).map((row) => ({ ...row }));
+      let rows = tableRows(table).map((row) => ({ ...row }));
+      if (table === "contracts" || table === "annexes") {
+        rows = rows.map((row) => withComputedPayment(row, table === "contracts" ? "contract" : "annex"));
+      }
       counts[table] = rows.length;
 
       if (FILE_TABLES.includes(table)) {
