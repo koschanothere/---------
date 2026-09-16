@@ -36,6 +36,7 @@ const paymentLabels = {
 };
 
 const docTypeLabels = {
+  commercial_proposal: "КП",
   contract: "Договор",
   annex: "Доп. соглашение",
   act: "Акт",
@@ -52,7 +53,7 @@ const categoryLabels = {
   secondary: "Вторичный",
 };
 
-const docTypeOptions = ["act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
+const docTypeOptions = ["commercial_proposal", "act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
 const statusOptions = ["na", "approved", "pending", "not_sent"];
 const paymentOptions = ["paid", "partial", "unpaid"];
 const commentColorOptions = ["pink", "violet"];
@@ -65,6 +66,13 @@ function formatMoney(value) {
 function formatDate(value) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("ru-RU").format(new Date(`${value}T00:00:00`));
+}
+
+function paymentPatch(document, paymentStatus) {
+  return {
+    payment_status: paymentStatus,
+    partial_payment_amount: paymentStatus === "partial" ? document.partial_payment_amount ?? "" : "",
+  };
 }
 
 function normalizeSortValue(value) {
@@ -141,7 +149,7 @@ function App() {
       }
       const counts = result.counts || {};
       setError("");
-      setMessage(`Экспорт готов: ${counts.objects || 0} объектов, ${counts.contracts || 0} договоров, ${counts.annexes || 0} ДС, ${counts.secondary_documents || 0} вторичных документов.`);
+      setMessage(`Экспорт готов: ${counts.objects || 0} объектов, ${counts.commercial_proposals || 0} КП, ${counts.contracts || 0} договоров, ${counts.annexes || 0} ДС, ${counts.secondary_documents || 0} вторичных документов.`);
     } catch (err) {
       setError(err.message || "Не удалось экспортировать данные");
     }
@@ -162,7 +170,7 @@ function App() {
       setView("objects");
       const counts = result.counts || {};
       setError("");
-      setMessage(`Импорт завершён: ${counts.objects || 0} объектов, ${counts.contracts || 0} договоров, ${counts.annexes || 0} ДС, ${counts.secondary_documents || 0} вторичных документов.`);
+      setMessage(`Импорт завершён: ${counts.objects || 0} объектов, ${counts.commercial_proposals || 0} КП, ${counts.contracts || 0} договоров, ${counts.annexes || 0} ДС, ${counts.secondary_documents || 0} вторичных документов.`);
     } catch (err) {
       setError(err.message || "Не удалось импортировать данные");
     }
@@ -261,7 +269,7 @@ function App() {
 function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
   const [sort, setSort] = useState({ key: "created_at", direction: "desc" });
   const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", comment: "", folder_created_date: new Date().toISOString().slice(0, 10) });
+  const [form, setForm] = useState({ name: "", customer: "", address: "", comment: "", folder_created_date: new Date().toISOString().slice(0, 10) });
 
   const rows = useMemo(() => sortRows(objects, sort), [objects, sort]);
 
@@ -269,7 +277,7 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
     event.preventDefault();
     if (!form.name.trim()) return;
     await api.createObject(form);
-    setForm({ name: "", comment: "", folder_created_date: new Date().toISOString().slice(0, 10) });
+    setForm({ name: "", customer: "", address: "", comment: "", folder_created_date: new Date().toISOString().slice(0, 10) });
     setFormOpen(false);
     onCreated();
   }
@@ -297,6 +305,14 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} autoFocus />
           </label>
           <label>
+            Заказчик
+            <input value={form.customer} onChange={(event) => setForm({ ...form, customer: event.target.value })} />
+          </label>
+          <label>
+            Адрес
+            <input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
+          </label>
+          <label>
             Дата папки
             <input type="date" value={form.folder_created_date || ""} onChange={(event) => setForm({ ...form, folder_created_date: event.target.value })} />
           </label>
@@ -316,7 +332,10 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
           <thead>
             <tr>
               <SortableTh label="Объект" field="name" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <SortableTh label="Заказчик" field="customer" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <SortableTh label="Адрес" field="address" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Дата папки" field="folder_created_date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <SortableTh label="КП" field="proposals_count" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Договоры" field="contracts_count" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="ДС" field="annexes_count" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Вторичные" field="secondary_count" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -328,7 +347,10 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
             {rows.map((object) => (
               <tr key={object.id} className="clickable-row" onClick={() => onOpenObject(object.id)}>
                 <td className="strong-cell">{object.name}</td>
+                <td>{object.customer || "—"}</td>
+                <td className="muted">{object.address || "—"}</td>
                 <td className="mono">{formatDate(object.folder_created_date)}</td>
+                <td className="mono">{object.proposals_count || 0}</td>
                 <td className="mono">{object.contracts_count || 0}</td>
                 <td className="mono">{object.annexes_count || 0}</td>
                 <td className="mono">{object.secondary_count || 0}</td>
@@ -340,7 +362,7 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <EmptyRow columns={7} text="Добавьте первый строительный объект" />}
+            {rows.length === 0 && <EmptyRow columns={10} text="Добавьте первый строительный объект" />}
           </tbody>
         </table>
       </div>
@@ -354,13 +376,21 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
   const [expandedContracts, setExpandedContracts] = useState(new Set());
   const [expandedAnnexes, setExpandedAnnexes] = useState(new Set());
   const [tabs, setTabs] = useState({});
+  const [contractProposal, setContractProposal] = useState(null);
+  const [proposalSort, setProposalSort] = useState({ key: "date", direction: "desc" });
   const [contractSort, setContractSort] = useState({ key: "date", direction: "desc" });
   const [annexSort, setAnnexSort] = useState({ key: "date", direction: "desc" });
 
   async function load() {
     const object = await api.getObjectDetails(objectId);
     setDetails(object);
-    setForm(object ? { name: object.name, comment: object.comment, folder_created_date: object.folder_created_date || "" } : null);
+    setForm(object ? {
+      name: object.name,
+      customer: object.customer || "",
+      address: object.address || "",
+      comment: object.comment,
+      folder_created_date: object.folder_created_date || "",
+    } : null);
   }
 
   useEffect(() => {
@@ -372,6 +402,7 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
   }
 
   const contracts = sortRows(details.contracts || [], contractSort);
+  const proposals = sortRows(details.commercial_proposals || [], proposalSort);
 
   function toggleContract(id) {
     setExpandedContracts((current) => {
@@ -402,6 +433,12 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
     await load();
   }
 
+  async function updateCommercialProposal(proposal, patch) {
+    await api.updateCommercialProposal({ ...proposal, ...patch });
+    await onChanged();
+    await load();
+  }
+
   async function updateAnnex(annex, patch) {
     await api.updateAnnex({ ...annex, ...patch });
     await onChanged();
@@ -414,9 +451,32 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
     await load();
   }
 
+  async function replaceDocumentFile(document, updateFn) {
+    const selected = await api.selectFile();
+    if (!selected) return;
+    await updateFn(document, {
+      sourceFilePath: selected.sourceFilePath,
+      original_filename: selected.originalFilename,
+    });
+  }
+
   async function deleteContract(id) {
     if (!window.confirm("Удалить договор, его ДС и документы?")) return;
     await api.deleteContract(id);
+    await onChanged();
+    await load();
+  }
+
+  async function deleteCommercialProposal(id) {
+    if (!window.confirm("Удалить КП?")) return;
+    await api.deleteCommercialProposal(id);
+    await onChanged();
+    await load();
+  }
+
+  async function createContractFromProposal(proposal, payload) {
+    await api.createContractFromProposal({ proposal_id: proposal.id, ...payload });
+    setContractProposal(null);
     await onChanged();
     await load();
   }
@@ -448,6 +508,14 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </label>
           <label>
+            Заказчик
+            <input value={form.customer} onChange={(event) => setForm({ ...form, customer: event.target.value })} />
+          </label>
+          <label className="wide">
+            Адрес
+            <input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
+          </label>
+          <label>
             Дата создания папки
             <input type="date" value={form.folder_created_date || ""} onChange={(event) => setForm({ ...form, folder_created_date: event.target.value })} />
           </label>
@@ -457,6 +525,25 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
           </label>
           <button className="text-button fit" type="submit"><Save size={16} /> Сохранить карточку</button>
         </form>
+      </section>
+
+      <section className="panel">
+        <div className="panel-toolbar">
+          <div className="section-title"><FileInput size={18} /> Коммерческие предложения</div>
+          <div className="sort-strip">
+            <button className={proposalSort.key === "number" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "number"))}>Номер {proposalSort.key === "number" ? sortArrow(proposalSort) : ""}</button>
+            <button className={proposalSort.key === "date" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "date"))}>Дата {proposalSort.key === "date" ? sortArrow(proposalSort) : ""}</button>
+            <button className={proposalSort.key === "amount" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "amount"))}>Сумма {proposalSort.key === "amount" ? sortArrow(proposalSort) : ""}</button>
+            <button className={proposalSort.key === "status" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "status"))}>Статус {proposalSort.key === "status" ? sortArrow(proposalSort) : ""}</button>
+          </div>
+        </div>
+        <ProposalList
+          proposals={proposals}
+          onUpdate={updateCommercialProposal}
+          onDelete={deleteCommercialProposal}
+          onCreateContract={setContractProposal}
+          onReplaceFile={(proposal) => replaceDocumentFile(proposal, updateCommercialProposal)}
+        />
       </section>
 
       <section className="panel">
@@ -517,7 +604,11 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
                     value={contract.payment_status}
                     options={paymentOptions.map((value) => ({ value, label: paymentLabels[value] }))}
                     displayValue={<Badge type="payment" value={contract.payment_status} />}
-                    onCommit={(value) => updateContract(contract, { payment_status: value })}
+                    onCommit={(value) => updateContract(contract, paymentPatch(contract, value))}
+                  />
+                  <PartialPaymentValue
+                    document={contract}
+                    onCommit={(value) => updateContract(contract, { partial_payment_amount: value })}
                   />
                   <EditableValue
                     value={contract.comment}
@@ -525,15 +616,8 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
                     displayValue={contract.comment ? <span className={`comment-chip ${contract.comment_color}`}>{contract.comment}</span> : null}
                     onCommit={(value) => updateContract(contract, { comment: value })}
                   />
-                  <EditableValue
-                    type="select"
-                    value={contract.comment_color}
-                    options={commentColorOptions.map((value) => ({ value, label: value === "pink" ? "Розовый" : "Фиолетовый" }))}
-                    displayValue={<span className={`comment-chip ${contract.comment_color}`}>{contract.comment_color === "pink" ? "Розовый" : "Фиолетовый"}</span>}
-                    onCommit={(value) => updateContract(contract, { comment_color: value })}
-                  />
                   <div className="row-actions">
-                    {contract.original_filename && <button className="file-link" onClick={() => api.openFile(contract.file_path)}>{contract.original_filename}</button>}
+                    <FileCell document={contract} onReplace={() => replaceDocumentFile(contract, updateContract)} />
                     <button className="icon-button danger" title="Удалить договор" onClick={() => deleteContract(contract.id)}>
                       <Trash2 size={16} />
                     </button>
@@ -563,6 +647,8 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
                         onToggleAnnex={toggleAnnex}
                         onUpdateAnnex={updateAnnex}
                         onUpdateDocument={updateSecondaryDocument}
+                        onReplaceAnnexFile={(annex) => replaceDocumentFile(annex, updateAnnex)}
+                        onReplaceDocumentFile={(document) => replaceDocumentFile(document, updateSecondaryDocument)}
                         onDeleteAnnex={deleteAnnex}
                         onDeleteDocument={deleteSecondary}
                       />
@@ -572,6 +658,7 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
                       <SecondaryDocumentsTable
                         documents={contract.documents || []}
                         onUpdate={updateSecondaryDocument}
+                        onReplaceFile={(document) => replaceDocumentFile(document, updateSecondaryDocument)}
                         onDelete={deleteSecondary}
                       />
                     )}
@@ -583,11 +670,215 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
           {contracts.length === 0 && <div className="empty-state">У объекта пока нет договоров</div>}
         </div>
       </section>
+
+      {contractProposal && (
+        <ProposalContractModal
+          proposal={contractProposal}
+          onClose={() => setContractProposal(null)}
+          onSaved={(payload) => createContractFromProposal(contractProposal, payload)}
+        />
+      )}
     </div>
   );
 }
 
-function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUpdateAnnex, onUpdateDocument, onDeleteAnnex, onDeleteDocument }) {
+function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onReplaceFile }) {
+  return (
+    <div className="proposal-list">
+      <div className="proposal-header">
+        <span></span>
+        <span>Номер</span>
+        <span>Дата</span>
+        <span>Сумма</span>
+        <span>Статус</span>
+        <span>Комментарий</span>
+        <span>Файл</span>
+        <span></span>
+      </div>
+      {proposals.map((proposal) => (
+        <div className="proposal-row" key={proposal.id}>
+          <FileInput size={18} className="row-icon" />
+          <EditableValue
+            className="strong-cell"
+            value={proposal.number}
+            emptyValue={`КП #${proposal.id}`}
+            prefix="КП "
+            onCommit={(value) => onUpdate(proposal, { number: value })}
+          />
+          <EditableValue
+            className="mono"
+            type="date"
+            value={proposal.date}
+            displayValue={formatDate(proposal.date)}
+            onCommit={(value) => onUpdate(proposal, { date: value })}
+          />
+          <EditableValue
+            className="mono amount"
+            type="number"
+            value={proposal.amount ?? ""}
+            displayValue={formatMoney(proposal.amount)}
+            onCommit={(value) => onUpdate(proposal, { amount: value })}
+          />
+          <EditableValue
+            type="select"
+            value={proposal.status}
+            options={statusOptions.map((value) => ({ value, label: statusLabels[value] }))}
+            displayValue={<Badge type="status" value={proposal.status} />}
+            onCommit={(value) => onUpdate(proposal, { status: value })}
+          />
+          <EditableValue
+            value={proposal.comment}
+            emptyValue="—"
+            onCommit={(value) => onUpdate(proposal, { comment: value })}
+          />
+          <FileCell document={proposal} onReplace={() => onReplaceFile(proposal)} />
+          <div className="row-actions">
+            <button className="text-button compact" onClick={() => onCreateContract(proposal)}>Появился договор</button>
+            <button className="icon-button danger" title="Удалить КП" onClick={() => onDelete(proposal.id)}>
+              <Trash2 size={15} />
+            </button>
+          </div>
+        </div>
+      ))}
+      {proposals.length === 0 && <div className="empty-state">КП пока нет</div>}
+    </div>
+  );
+}
+
+function PartialPaymentValue({ document, onCommit }) {
+  if (document.payment_status !== "partial") {
+    return <span className="muted">—</span>;
+  }
+
+  return (
+    <EditableValue
+      className="mono amount"
+      type="number"
+      value={document.partial_payment_amount ?? ""}
+      displayValue={formatMoney(document.partial_payment_amount)}
+      onCommit={onCommit}
+    />
+  );
+}
+
+function FileCell({ document, onReplace }) {
+  return (
+    <div className="file-actions">
+      {document.original_filename ? (
+        <button className="file-link" type="button" onClick={() => api.openFile(document.file_path)} title={document.original_filename}>
+          {document.original_filename}
+        </button>
+      ) : (
+        <span className="muted">—</span>
+      )}
+      <button className="icon-button" type="button" title="Заменить файл" onClick={onReplace}>
+        <Upload size={14} />
+      </button>
+    </div>
+  );
+}
+
+function ProposalContractModal({ proposal, onClose, onSaved }) {
+  const [file, setFile] = useState(null);
+  const [form, setForm] = useState({
+    number: "",
+    date: new Date().toISOString().slice(0, 10),
+    amount: proposal.amount ?? "",
+    status: "approved",
+    payment_status: "unpaid",
+    partial_payment_amount: "",
+    comment: proposal.comment || "",
+    comment_color: "pink",
+  });
+  const [error, setError] = useState("");
+
+  async function chooseFile() {
+    const selected = await api.selectFile();
+    if (selected) setFile(selected);
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    try {
+      setError("");
+      await onSaved({
+        ...form,
+        sourceFilePath: file?.sourceFilePath || null,
+        original_filename: file?.originalFilename || null,
+      });
+    } catch (err) {
+      setError(err.message || "Не удалось создать договор из КП");
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <form className="modal proposal-contract-modal" onSubmit={submit}>
+        <div className="modal-header">
+          <div>
+            <h2>Появился договор</h2>
+            <p>КП {proposal.number || `#${proposal.id}`} станет вторичным документом нового договора</p>
+          </div>
+          <button className="icon-button" type="button" title="Закрыть" onClick={onClose}><X size={18} /></button>
+        </div>
+        {error && <div className="notice error">{error}</div>}
+        <div className="form-section">
+          <button className="upload-target compact-upload" type="button" onClick={chooseFile}>
+            <Upload size={22} />
+            <strong>{file ? file.originalFilename : "Выбрать файл договора"}</strong>
+            <span>Файл договора можно приложить сразу, КП перенесётся под договор автоматически</span>
+          </button>
+        </div>
+        <div className="form-section wizard-grid">
+          <label>
+            Номер договора
+            <input value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} autoFocus />
+          </label>
+          <label>
+            Дата договора
+            <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} />
+          </label>
+          <label>
+            Сумма
+            <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
+          </label>
+          <label>
+            Статус согласования
+            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+              {statusOptions.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
+            </select>
+          </label>
+          <label>
+            Статус оплаты
+            <select value={form.payment_status} onChange={(event) => setForm({ ...form, ...paymentPatch(form, event.target.value) })}>
+              {paymentOptions.map((status) => <option key={status} value={status}>{paymentLabels[status]}</option>)}
+            </select>
+          </label>
+          {form.payment_status === "partial" && (
+            <label>
+              Сумма частичной оплаты
+              <input type="number" min="0" step="0.01" value={form.partial_payment_amount} onChange={(event) => setForm({ ...form, partial_payment_amount: event.target.value })} />
+            </label>
+          )}
+          <label>
+            Комментарий-метка
+            <input maxLength={24} value={form.comment} onChange={(event) => setForm({ ...form, comment: event.target.value })} />
+          </label>
+          <div className="segmented">
+            <button type="button" className={form.comment_color === "pink" ? "active pink" : ""} onClick={() => setForm({ ...form, comment_color: "pink" })}>Розовый</button>
+            <button type="button" className={form.comment_color === "violet" ? "active violet" : ""} onClick={() => setForm({ ...form, comment_color: "violet" })}>Фиолетовый</button>
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button className="ghost-button" type="button" onClick={onClose}>Отмена</button>
+          <button className="text-button" type="submit"><Save size={16} /> Создать договор</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUpdateAnnex, onUpdateDocument, onReplaceAnnexFile, onReplaceDocumentFile, onDeleteAnnex, onDeleteDocument }) {
   return (
     <div className="nested-list">
       <div className="annex-header">
@@ -598,6 +889,7 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
         <SortableDiv label="Сумма" field="amount" sort={sort} onSort={onSort} />
         <SortableDiv label="Статус" field="status" sort={sort} onSort={onSort} />
         <SortableDiv label="Оплата" field="payment_status" sort={sort} onSort={onSort} />
+        <SortableDiv label="Оплачено" field="partial_payment_amount" sort={sort} onSort={onSort} />
         <span>Файл</span>
         <span></span>
       </div>
@@ -638,16 +930,20 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
                 value={annex.payment_status}
                 options={paymentOptions.map((value) => ({ value, label: paymentLabels[value] }))}
                 displayValue={<Badge type="payment" value={annex.payment_status} />}
-                onCommit={(value) => onUpdateAnnex(annex, { payment_status: value })}
+                onCommit={(value) => onUpdateAnnex(annex, paymentPatch(annex, value))}
               />
-              {annex.original_filename ? <button className="file-link" onClick={() => api.openFile(annex.file_path)}>{annex.original_filename}</button> : <span className="muted">—</span>}
+              <PartialPaymentValue
+                document={annex}
+                onCommit={(value) => onUpdateAnnex(annex, { partial_payment_amount: value })}
+              />
+              <FileCell document={annex} onReplace={() => onReplaceAnnexFile(annex)} />
               <button className="icon-button danger push-right" title="Удалить ДС" onClick={() => onDeleteAnnex(annex.id)}>
                 <Trash2 size={15} />
               </button>
             </div>
             {annexOpen && (
               <div className="tree-children tight">
-                <SecondaryDocumentsTable documents={annex.documents || []} onUpdate={onUpdateDocument} onDelete={onDeleteDocument} />
+                <SecondaryDocumentsTable documents={annex.documents || []} onUpdate={onUpdateDocument} onReplaceFile={onReplaceDocumentFile} onDelete={onDeleteDocument} />
               </div>
             )}
           </div>
@@ -658,7 +954,7 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
   );
 }
 
-function SecondaryDocumentsTable({ documents, onUpdate, onDelete }) {
+function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete }) {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState({ key: "date", direction: "desc" });
   const rows = useMemo(() => {
@@ -678,10 +974,12 @@ function SecondaryDocumentsTable({ documents, onUpdate, onDelete }) {
         <thead>
           <tr>
             <SortableTh label="Тип" field="doc_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+            <SortableTh label="Номер" field="number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Дата" field="date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Сумма" field="amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Статус" field="status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Оплата" field="payment_status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+            <SortableTh label="Оплачено" field="partial_payment_amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <th>Файл</th>
             <th></th>
           </tr>
@@ -696,6 +994,14 @@ function SecondaryDocumentsTable({ documents, onUpdate, onDelete }) {
                   options={docTypeOptions.map((value) => ({ value, label: docTypeLabels[value] }))}
                   displayValue={<><DocIcon type={doc.doc_type} /> {docTypeLabels[doc.doc_type]}</>}
                   onCommit={(value) => onUpdate(doc, { doc_type: value })}
+                />
+              </td>
+              <td>
+                <EditableValue
+                  className="mono"
+                  value={doc.number}
+                  emptyValue="—"
+                  onCommit={(value) => onUpdate(doc, { number: value })}
                 />
               </td>
               <td>
@@ -731,10 +1037,16 @@ function SecondaryDocumentsTable({ documents, onUpdate, onDelete }) {
                   value={doc.payment_status}
                   options={paymentOptions.map((value) => ({ value, label: paymentLabels[value] }))}
                   displayValue={<Badge type="payment" value={doc.payment_status} />}
-                  onCommit={(value) => onUpdate(doc, { payment_status: value })}
+                  onCommit={(value) => onUpdate(doc, paymentPatch(doc, value))}
                 />
               </td>
-              <td>{doc.original_filename ? <button className="file-link" onClick={() => api.openFile(doc.file_path)}>{doc.original_filename}</button> : "—"}</td>
+              <td>
+                <PartialPaymentValue
+                  document={doc}
+                  onCommit={(value) => onUpdate(doc, { partial_payment_amount: value })}
+                />
+              </td>
+              <td><FileCell document={doc} onReplace={() => onReplaceFile(doc)} /></td>
               <td>
                 <button className="icon-button danger" title="Удалить документ" onClick={() => onDelete(doc.id)}>
                   <Trash2 size={15} />
@@ -742,7 +1054,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onDelete }) {
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <EmptyRow columns={7} text="Документов нет" />}
+          {rows.length === 0 && <EmptyRow columns={9} text="Документов нет" />}
         </tbody>
       </table>
     </div>
@@ -761,7 +1073,7 @@ function Registry({ onOpenObject, refreshKey }) {
   const visibleRows = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
     const filtered = rows.filter((row) => {
-      const text = `${row.object_name} ${row.contract_number} ${row.annex_label || ""} ${docTypeLabels[row.doc_type] || ""}`.toLowerCase();
+      const text = `${row.object_name} ${row.contract_number} ${row.document_number || ""} ${row.annex_label || ""} ${docTypeLabels[row.doc_type] || ""}`.toLowerCase();
       return (!search || text.includes(search))
         && (filters.status === "all" || row.status === filters.status)
         && (filters.payment === "all" || row.payment_status === filters.payment)
@@ -807,11 +1119,13 @@ function Registry({ onOpenObject, refreshKey }) {
               <SortableTh label="Договор" field="contract_number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="ДС" field="annex_label" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Тип" field="doc_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <SortableTh label="Номер док." field="document_number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Категория" field="category" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Дата" field="date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Сумма" field="amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Статус" field="status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Оплата" field="payment_status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <SortableTh label="Оплачено" field="partial_payment_amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             </tr>
           </thead>
           <tbody>
@@ -821,14 +1135,16 @@ function Registry({ onOpenObject, refreshKey }) {
                 <td>{row.contract_number || "—"}</td>
                 <td>{row.annex_label || "—"}</td>
                 <td><DocIcon type={row.doc_type} /> {docTypeLabels[row.doc_type]}</td>
+                <td className="mono">{row.document_number || "—"}</td>
                 <td>{categoryLabels[row.category]}</td>
                 <td className="mono">{formatDate(row.date)}</td>
                 <td className="mono">{formatMoney(row.amount)}</td>
                 <td><Badge type="status" value={row.status} /></td>
                 <td><Badge type="payment" value={row.payment_status} /></td>
+                <td className="mono">{row.payment_status === "partial" ? formatMoney(row.partial_payment_amount) : "—"}</td>
               </tr>
             ))}
-            {visibleRows.length === 0 && <EmptyRow columns={9} text="По фильтрам ничего не найдено" />}
+            {visibleRows.length === 0 && <EmptyRow columns={11} text="По фильтрам ничего не найдено" />}
           </tbody>
         </table>
       </div>
@@ -851,6 +1167,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
     amount: "",
     status: "na",
     payment_status: "unpaid",
+    partial_payment_amount: "",
     comment: "",
     comment_color: "pink",
   });
@@ -885,7 +1202,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
 
   function canSave() {
     if (!objectId) return false;
-    if (category === "contract") return true;
+    if (category === "contract" || category === "commercial_proposal") return true;
     if (!contractId) return false;
     if (category === "secondary" && parentType === "annex") return Boolean(annexId);
     return true;
@@ -900,11 +1217,19 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
         amount: form.amount,
         status: form.status,
         payment_status: form.payment_status,
+        partial_payment_amount: form.partial_payment_amount,
         sourceFilePath: file?.sourceFilePath || null,
         original_filename: file?.originalFilename || null,
       };
 
-      if (category === "contract") {
+      if (category === "commercial_proposal") {
+        await api.createCommercialProposal({
+          ...base,
+          object_id: Number(objectId),
+          number: form.number,
+          comment: form.comment,
+        });
+      } else if (category === "contract") {
         await api.createContract({
           ...base,
           object_id: Number(objectId),
@@ -923,6 +1248,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
           parent_type: parentType,
           parent_id: Number(parentType === "annex" ? annexId : contractId),
           doc_type: docType,
+          number: form.number,
         });
       }
       onSaved({ objectId: Number(objectId) });
@@ -953,6 +1279,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
         </div>
 
         <div className="form-section choice-grid">
+          <ChoiceCard active={category === "commercial_proposal"} icon={<FileInput />} title="КП" text="Коммерческое предложение до договора" onClick={() => setCategory("commercial_proposal")} />
           <ChoiceCard active={category === "contract"} icon={<FileText />} title="Договор" text="Первичный документ объекта" onClick={() => setCategory("contract")} />
           <ChoiceCard active={category === "annex"} icon={<FileArchive />} title="Доп. соглашение" text="Первичный документ договора" onClick={() => setCategory("annex")} />
           <ChoiceCard active={category === "secondary"} icon={<ReceiptText />} title="Вторичный документ" text="Акты, счета, отчёты и прочее" onClick={() => setCategory("secondary")} />
@@ -967,7 +1294,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
             </select>
           </label>
 
-          {category !== "contract" && (
+          {category !== "contract" && category !== "commercial_proposal" && (
             <label>
               Договор
               <select value={contractId} onChange={(event) => { setContractId(event.target.value); setAnnexId(""); }}>
@@ -1005,20 +1332,26 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
         </div>
 
         <div className="form-section wizard-grid">
-          {category === "contract" && (
+          {(category === "contract" || category === "commercial_proposal" || category === "secondary") && (
             <>
               <label>
-                Номер договора
+                {category === "commercial_proposal" ? "Номер КП" : category === "secondary" ? "Номер документа" : "Номер договора"}
                 <input value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} />
               </label>
-              <label>
-                Комментарий-метка
-                <input maxLength={24} value={form.comment} onChange={(event) => setForm({ ...form, comment: event.target.value })} />
-              </label>
-              <div className="segmented">
-                <button type="button" className={form.comment_color === "pink" ? "active pink" : ""} onClick={() => setForm({ ...form, comment_color: "pink" })}>Розовый</button>
-                <button type="button" className={form.comment_color === "violet" ? "active violet" : ""} onClick={() => setForm({ ...form, comment_color: "violet" })}>Фиолетовый</button>
-              </div>
+              {category !== "secondary" && (
+                <>
+                  <label>
+                    {category === "commercial_proposal" ? "Комментарий" : "Комментарий-метка"}
+                    <input maxLength={24} value={form.comment} onChange={(event) => setForm({ ...form, comment: event.target.value })} />
+                  </label>
+                  {category === "contract" && (
+                    <div className="segmented">
+                      <button type="button" className={form.comment_color === "pink" ? "active pink" : ""} onClick={() => setForm({ ...form, comment_color: "pink" })}>Розовый</button>
+                      <button type="button" className={form.comment_color === "violet" ? "active violet" : ""} onClick={() => setForm({ ...form, comment_color: "violet" })}>Фиолетовый</button>
+                    </div>
+                  )}
+                </>
+              )}
             </>
           )}
           <label>
@@ -1035,12 +1368,20 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
               {statusOptions.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
             </select>
           </label>
-          <label>
-            Статус оплаты
-            <select value={form.payment_status} onChange={(event) => setForm({ ...form, payment_status: event.target.value })}>
-              {paymentOptions.map((status) => <option key={status} value={status}>{paymentLabels[status]}</option>)}
-            </select>
-          </label>
+          {category !== "commercial_proposal" && (
+            <label>
+              Статус оплаты
+              <select value={form.payment_status} onChange={(event) => setForm({ ...form, ...paymentPatch(form, event.target.value) })}>
+                {paymentOptions.map((status) => <option key={status} value={status}>{paymentLabels[status]}</option>)}
+              </select>
+            </label>
+          )}
+          {category !== "commercial_proposal" && form.payment_status === "partial" && (
+            <label>
+              Сумма частичной оплаты
+              <input type="number" min="0" step="0.01" value={form.partial_payment_amount} onChange={(event) => setForm({ ...form, partial_payment_amount: event.target.value })} />
+            </label>
+          )}
         </div>
 
         <div className="modal-actions">
@@ -1133,6 +1474,7 @@ function Badge({ type, value }) {
 }
 
 function DocIcon({ type }) {
+  if (type === "commercial_proposal") return <FileInput size={16} className="inline-icon" />;
   if (type === "contract") return <FileText size={16} className="inline-icon" />;
   if (type === "annex") return <FileArchive size={16} className="inline-icon" />;
   if (type === "invoice" || type === "invoice_facture") return <ReceiptText size={16} className="inline-icon" />;

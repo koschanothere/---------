@@ -261,7 +261,7 @@ button:disabled {
 .inline-form,
 .object-form {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) 180px minmax(260px, 2fr) auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.8fr) minmax(220px, 1.2fr) minmax(180px, 1fr) auto;
   gap: 12px;
   padding: 14px;
   border-bottom: 1px solid var(--line-soft);
@@ -275,6 +275,10 @@ button:disabled {
 
 .object-form .wide {
   grid-column: 1 / -1;
+}
+
+.inline-form .wide {
+  grid-column: span 2;
 }
 
 label {
@@ -322,7 +326,7 @@ textarea:focus {
 
 .data-table {
   width: 100%;
-  min-width: 860px;
+  min-width: 1120px;
   border-collapse: collapse;
 }
 
@@ -433,6 +437,40 @@ textarea:focus {
 
 .accordion-list {
   display: grid;
+  overflow-x: auto;
+}
+
+.proposal-list {
+  display: grid;
+  overflow-x: auto;
+}
+
+.proposal-header,
+.proposal-row {
+  display: grid;
+  grid-template-columns: 20px minmax(130px, 1fr) 120px minmax(130px, 0.85fr) 132px minmax(120px, 1fr) minmax(120px, 1fr) minmax(180px, auto);
+  align-items: center;
+  gap: 10px;
+  min-width: 980px;
+  padding: 8px 12px;
+}
+
+.proposal-header {
+  min-height: 36px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #f7f7f3;
+  color: #405048;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.proposal-row {
+  min-height: 52px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.proposal-row:last-of-type {
+  border-bottom: 0;
 }
 
 .tree-item {
@@ -446,22 +484,25 @@ textarea:focus {
 .contract-row,
 .annex-row {
   display: grid;
-  grid-template-columns: 32px 20px minmax(150px, 1.3fr) 120px minmax(140px, 0.85fr) 132px 118px minmax(80px, auto) 112px minmax(110px, 1fr);
+  grid-template-columns: 32px 20px minmax(150px, 1.2fr) 120px minmax(140px, 0.8fr) 132px 118px minmax(120px, 0.8fr) minmax(80px, 0.8fr) minmax(170px, 1fr);
   align-items: center;
   gap: 10px;
+  min-width: 1240px;
   min-height: 52px;
   padding: 8px 12px;
 }
 
 .annex-row {
-  grid-template-columns: 32px 20px minmax(110px, 1fr) 120px minmax(140px, 0.9fr) 132px 118px minmax(0, 1fr) 34px;
+  grid-template-columns: 32px 20px minmax(110px, 1fr) 120px minmax(140px, 0.9fr) 132px 118px minmax(120px, 0.8fr) minmax(160px, 1fr) 34px;
+  min-width: 1120px;
 }
 
 .annex-header {
   display: grid;
-  grid-template-columns: 32px 20px minmax(110px, 1fr) 120px minmax(140px, 0.9fr) 132px 118px minmax(0, 1fr) 34px;
+  grid-template-columns: 32px 20px minmax(110px, 1fr) 120px minmax(140px, 0.9fr) 132px 118px minmax(120px, 0.8fr) minmax(160px, 1fr) 34px;
   gap: 10px;
   align-items: center;
+  min-width: 1120px;
   min-height: 36px;
   padding: 0 12px;
   border-bottom: 1px solid var(--line-soft);
@@ -533,7 +574,7 @@ textarea:focus {
 }
 
 .compact-table {
-  min-width: 760px;
+  min-width: 1060px;
   border: 1px solid var(--line-soft);
 }
 
@@ -627,6 +668,17 @@ textarea:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-decoration: underline;
+}
+
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.file-actions .file-link {
+  flex: 1;
 }
 
 .row-actions {
@@ -794,7 +846,7 @@ textarea:focus {
 
 .choice-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -826,6 +878,10 @@ textarea:focus {
 
 .document-form {
   width: min(860px, 100%);
+}
+
+.proposal-contract-modal {
+  width: min(820px, 100%);
 }
 
 .form-section {

@@ -8,6 +8,8 @@ let mainWindow;
 let store;
 
 function createWindow() {
+  const iconPath = path.join(__dirname, "../../build/icon.ico");
+
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -15,6 +17,7 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: "#EDEEE9",
     title: "GureevDoc",
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -41,6 +44,11 @@ function registerIpc() {
   invoke("objects:create", (payload) => store.createObject(payload));
   invoke("objects:update", (payload) => store.updateObject(payload));
   invoke("objects:delete", ({ id }) => store.deleteObject(id));
+
+  invoke("proposals:create", (payload) => store.createCommercialProposal(payload));
+  invoke("proposals:update", (payload) => store.updateCommercialProposal(payload));
+  invoke("proposals:delete", ({ id }) => store.deleteCommercialProposal(id));
+  invoke("proposals:contract", (payload) => store.createContractFromProposal(payload));
 
   invoke("contracts:create", (payload) => store.createContract(payload));
   invoke("contracts:update", (payload) => store.updateContract(payload));
@@ -119,6 +127,9 @@ function registerIpc() {
 
 app.whenReady().then(() => {
   store = createStore(app.getPath("userData"));
+  if (process.env.VITE_DEV_SERVER_URL) {
+    store.seedDevelopmentData({ reset: process.env.GUREEVDOC_RESET_DEMO === "1" });
+  }
   registerIpc();
   createWindow();
 

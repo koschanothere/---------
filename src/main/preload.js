@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld("stroySort", {
   updateObject: (payload) => invoke("objects:update", payload),
   deleteObject: (id) => invoke("objects:delete", { id }),
 
+  createCommercialProposal: (payload) => invoke("proposals:create", payload),
+  updateCommercialProposal: (payload) => invoke("proposals:update", payload),
+  deleteCommercialProposal: (id) => invoke("proposals:delete", { id }),
+  createContractFromProposal: (payload) => invoke("proposals:contract", payload),
+
   createContract: (payload) => invoke("contracts:create", payload),
   updateContract: (payload) => invoke("contracts:update", payload),
   deleteContract: (id) => invoke("contracts:delete", { id }),
