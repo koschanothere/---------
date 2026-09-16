@@ -7,8 +7,48 @@
   --line-soft: #d7ddd8;
   --accent: #7a5a3a;
   --accent-dark: #5b4028;
+  --accent-contrast: #ffffff;
+  --accent-soft: #f7f1eb;
+  --accent-soft-border: #d8c6b4;
   --danger: #c53030;
   --control: #f8f8f5;
+
+  --ooo-color: #ffb0b5;
+  --ooo-color-dark: #9c3b46;
+  --ip-color: #06402b;
+  --ip-color-dark: #03301f;
+}
+
+.app-shell[data-business-mode="ooo"] {
+  --accent: var(--ooo-color);
+  --accent-dark: var(--ooo-color-dark);
+  --accent-contrast: #4a151d;
+  --accent-soft: #fff0f1;
+  --accent-soft-border: #ffc9cd;
+}
+
+.app-shell[data-business-mode="ip"] {
+  --accent: var(--ip-color);
+  --accent-dark: var(--ip-color-dark);
+  --accent-contrast: #ffffff;
+  --accent-soft: #e8f0ec;
+  --accent-soft-border: #b7d0c4;
+}
+
+.app-shell[data-business-mode="ooo"] .sidebar,
+.app-shell[data-business-mode="ip"] .sidebar {
+  background: var(--accent-soft);
+}
+
+.app-shell[data-business-mode="ooo"] .panel,
+.app-shell[data-business-mode="ip"] .panel {
+  border-left: 3px solid var(--accent);
+}
+
+.app-shell[data-business-mode="ooo"] .topbar,
+.app-shell[data-business-mode="ip"] .topbar {
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--accent);
 }
 
 * {
@@ -46,7 +86,7 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 204px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -55,9 +95,9 @@ button:disabled {
   top: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   height: 100vh;
-  padding: 20px 16px;
+  padding: 14px 12px;
   border-right: 1px solid var(--line);
   background: #f6f6f1;
 }
@@ -65,20 +105,20 @@ button:disabled {
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-bottom: 16px;
+  gap: 10px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--line-soft);
 }
 
 .brand-mark {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   place-items: center;
   border: 1px solid var(--accent);
   border-radius: 4px;
-  color: var(--accent);
-  background: #f7f1eb;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
 }
 
 .brand strong,
@@ -87,18 +127,18 @@ button:disabled {
 }
 
 .brand strong {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .brand span {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .nav {
   display: grid;
-  gap: 6px;
+  gap: 3px;
 }
 
 .nav button,
@@ -118,17 +158,50 @@ button:disabled {
 .nav button {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding: 8px 10px;
+  gap: 9px;
+  min-height: 32px;
+  padding: 6px 9px;
   text-align: left;
+  font-size: 13.5px;
 }
 
 .nav button.active,
 .nav button:hover {
-  border-color: #d8c6b4;
+  border-color: var(--accent-soft-border);
   color: var(--accent-dark);
-  background: #f7f1eb;
+  background: var(--accent-soft);
+}
+
+.business-nav {
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.biztype-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.biztype-dot.ooo {
+  background: var(--ooo-color);
+}
+
+.biztype-dot.ip {
+  background: var(--ip-color);
+}
+
+.nav button.biztype-ooo.active {
+  border-color: var(--ooo-color-dark);
+  color: #7a1f2b;
+  background: #fff0f1;
+}
+
+.nav button.biztype-ip.active {
+  border-color: var(--ip-color-dark);
+  color: var(--ip-color);
+  background: #e8f0ec;
 }
 
 .primary-action,
@@ -137,10 +210,10 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 36px;
-  padding: 8px 12px;
+  min-height: 32px;
+  padding: 7px 12px;
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--accent-contrast);
   background: var(--accent);
   font-weight: 600;
 }
@@ -203,7 +276,7 @@ button:disabled {
   width: 40px;
   height: 40px;
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--accent-contrast);
   background: var(--accent);
 }
 
@@ -279,6 +352,12 @@ button:disabled {
 
 .inline-form .wide {
   grid-column: span 2;
+}
+
+.field-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 13px;
 }
 
 label {
@@ -432,7 +511,7 @@ textarea:focus {
 .sort-strip button:hover {
   border-color: var(--accent);
   color: var(--accent-dark);
-  background: #f7f1eb;
+  background: var(--accent-soft);
 }
 
 .accordion-list {
@@ -448,15 +527,15 @@ textarea:focus {
 .proposal-header,
 .proposal-row {
   display: grid;
-  grid-template-columns: 20px minmax(130px, 1fr) 120px minmax(130px, 0.85fr) 132px minmax(120px, 1fr) minmax(120px, 1fr) minmax(180px, auto);
+  grid-template-columns: 20px 74px minmax(130px, 1fr) 92px minmax(120px, 0.85fr) 64px 108px minmax(120px, 1fr) minmax(120px, 1fr) minmax(180px, auto);
   align-items: center;
-  gap: 10px;
-  min-width: 980px;
-  padding: 8px 12px;
+  gap: 8px;
+  min-width: 1030px;
+  padding: 6px 10px;
 }
 
 .proposal-header {
-  min-height: 36px;
+  min-height: 32px;
   border-bottom: 1px solid var(--line-soft);
   background: #f7f7f3;
   color: #405048;
@@ -465,7 +544,7 @@ textarea:focus {
 }
 
 .proposal-row {
-  min-height: 52px;
+  min-height: 44px;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -484,27 +563,27 @@ textarea:focus {
 .contract-row,
 .annex-row {
   display: grid;
-  grid-template-columns: 32px 20px minmax(150px, 1.2fr) 120px minmax(140px, 0.8fr) 132px 118px minmax(120px, 0.8fr) minmax(80px, 0.8fr) minmax(170px, 1fr);
+  grid-template-columns: 28px 18px 74px minmax(150px, 1.2fr) 92px minmax(130px, 0.8fr) 64px 108px 96px minmax(110px, 0.8fr) minmax(76px, 0.8fr) minmax(160px, 1fr);
   align-items: center;
-  gap: 10px;
-  min-width: 1240px;
-  min-height: 52px;
-  padding: 8px 12px;
+  gap: 8px;
+  min-width: 1250px;
+  min-height: 44px;
+  padding: 6px 10px;
 }
 
 .annex-row {
-  grid-template-columns: 32px 20px minmax(110px, 1fr) 120px minmax(140px, 0.9fr) 132px 118px minmax(120px, 0.8fr) minmax(160px, 1fr) 34px;
-  min-width: 1120px;
+  grid-template-columns: 28px 18px 74px minmax(110px, 1fr) 92px minmax(130px, 0.9fr) 64px 108px 96px minmax(110px, 0.8fr) minmax(150px, 1fr) 34px;
+  min-width: 1150px;
 }
 
 .annex-header {
   display: grid;
-  grid-template-columns: 32px 20px minmax(110px, 1fr) 120px minmax(140px, 0.9fr) 132px 118px minmax(120px, 0.8fr) minmax(160px, 1fr) 34px;
-  gap: 10px;
+  grid-template-columns: 28px 18px 74px minmax(110px, 1fr) 92px minmax(130px, 0.9fr) 64px 108px 96px minmax(110px, 0.8fr) minmax(150px, 1fr) 34px;
+  gap: 8px;
   align-items: center;
-  min-width: 1120px;
-  min-height: 36px;
-  padding: 0 12px;
+  min-width: 1150px;
+  min-height: 32px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--line-soft);
   background: #f7f7f3;
   color: #405048;
@@ -550,7 +629,7 @@ textarea:focus {
 .tabs button.active {
   border-color: var(--accent);
   color: var(--accent-dark);
-  background: #f7f1eb;
+  background: var(--accent-soft);
 }
 
 .nested-list,
@@ -574,14 +653,14 @@ textarea:focus {
 }
 
 .compact-table {
-  min-width: 1060px;
+  min-width: 1130px;
   border: 1px solid var(--line-soft);
 }
 
 .compact-table th,
 .compact-table td {
-  height: 40px;
-  padding: 7px 10px;
+  height: 34px;
+  padding: 5px 9px;
 }
 
 .empty-state,
@@ -595,11 +674,11 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 96px;
-  min-height: 24px;
-  padding: 3px 8px;
+  min-width: 74px;
+  min-height: 22px;
+  padding: 2px 6px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -634,13 +713,13 @@ textarea:focus {
 .comment-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: 22px;
   width: fit-content;
   max-width: 150px;
   overflow: hidden;
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -656,6 +735,46 @@ textarea:focus {
 .segmented .active.violet {
   color: #6b3fa0;
   background: #ede3f5;
+}
+
+.biztype-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  min-height: 22px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.biztype-chip.ooo,
+.segmented .active.biztype-ooo {
+  color: #7a1f2b;
+  background: var(--ooo-color);
+}
+
+.biztype-chip.ip,
+.segmented .active.biztype-ip {
+  color: #ffffff;
+  background: var(--ip-color);
+}
+
+.biztype-chip.unset {
+  color: var(--muted);
+  background: #f1f2f4;
+  border: 1px dashed var(--line-soft);
+}
+
+.biztype-chip-group {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.segmented.business-segmented {
+  min-height: 30px;
 }
 
 .file-link {
@@ -694,12 +813,12 @@ textarea:focus {
   align-items: center;
   justify-content: flex-start;
   width: 100%;
-  min-height: 28px;
+  min-height: 24px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 3px 5px;
+  padding: 2px 4px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -708,12 +827,13 @@ textarea:focus {
 }
 
 .editable-value:hover {
-  border-color: #d8c6b4;
-  background: #f7f1eb;
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft);
 }
 
 .editable-value .badge,
-.editable-value .comment-chip {
+.editable-value .comment-chip,
+.editable-value .biztype-chip {
   pointer-events: none;
 }
 
@@ -730,7 +850,7 @@ textarea:focus {
 
 .registry-filters {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) repeat(4, minmax(150px, 190px));
+  grid-template-columns: minmax(220px, 1fr) repeat(5, minmax(140px, 180px));
   gap: 10px;
   padding: 12px;
   border-bottom: 1px solid var(--line-soft);
@@ -836,7 +956,7 @@ textarea:focus {
 }
 
 .upload-target svg {
-  color: var(--accent);
+  color: var(--accent-dark);
 }
 
 .upload-target span {
@@ -863,7 +983,7 @@ textarea:focus {
 }
 
 .choice-card svg {
-  color: var(--accent);
+  color: var(--accent-dark);
 }
 
 .choice-card span {
@@ -873,7 +993,7 @@ textarea:focus {
 
 .choice-card.active {
   border-color: var(--accent);
-  background: #f7f1eb;
+  background: var(--accent-soft);
 }
 
 .document-form {
@@ -926,7 +1046,7 @@ textarea:focus {
 
 .segmented button.active {
   color: var(--accent-dark);
-  background: #f7f1eb;
+  background: var(--accent-soft);
   font-weight: 700;
 }
 

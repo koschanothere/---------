@@ -53,14 +53,29 @@ const categoryLabels = {
   secondary: "Вторичный",
 };
 
+const businessTypeLabels = {
+  ooo: "ООО",
+  ip: "ИП",
+};
+
 const docTypeOptions = ["commercial_proposal", "act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
 const statusOptions = ["na", "approved", "pending", "not_sent"];
 const paymentOptions = ["paid", "partial", "unpaid"];
 const commentColorOptions = ["pink", "violet"];
+const businessTypeOptions = ["ooo", "ip"];
+
+function matchesBusinessFilter(value, businessFilter) {
+  return businessFilter === "all" || value === businessFilter;
+}
 
 function formatMoney(value) {
   if (value === null || value === undefined || value === "") return "—";
   return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 }).format(Number(value));
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return `${Number(value)}%`;
 }
 
 function formatDate(value) {
@@ -71,7 +86,11 @@ function formatDate(value) {
 function paymentPatch(document, paymentStatus) {
   return {
     payment_status: paymentStatus,
-    partial_payment_amount: paymentStatus === "partial" ? document.partial_payment_amount ?? "" : "",
+    partial_payment_amount: paymentStatus === "partial"
+      ? document.partial_payment_amount ?? ""
+      : paymentStatus === "paid"
+        ? document.amount ?? ""
+        : "",
   };
 }
 
@@ -114,6 +133,7 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [businessFilter, setBusinessFilter] = useState("all");
 
   async function loadObjects() {
     try {
@@ -128,10 +148,29 @@ function App() {
     loadObjects();
   }, [refreshKey]);
 
+  function openObjects(filter) {
+    setBusinessFilter(filter);
+    setView("objects");
+  }
+
   function openObject(id) {
     setSelectedObjectId(id);
     setView("object");
   }
+
+  function openObjectFromRegistry(id) {
+    setBusinessFilter("all");
+    openObject(id);
+  }
+
+  const visibleObjects = useMemo(
+    () => objects.filter((object) => (
+      businessFilter === "all"
+      || (businessFilter === "ooo" && object.is_ooo)
+      || (businessFilter === "ip" && object.is_ip)
+    )),
+    [objects, businessFilter],
+  );
 
   async function afterMutation() {
     await loadObjects();
@@ -176,8 +215,11 @@ function App() {
     }
   }
 
+  const businessModeLabel = businessFilter === "all" ? "" : ` · ${businessTypeLabels[businessFilter]}`;
+  const themeMode = view === "registry" ? "all" : businessFilter;
+
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-business-mode={themeMode}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><Building2 size={20} /></div>
@@ -187,14 +229,22 @@ function App() {
           </div>
         </div>
         <nav className="nav">
-          <button className={view === "objects" ? "active" : ""} onClick={() => setView("objects")}>
+          <button className={view === "objects" && businessFilter === "all" ? "active" : ""} onClick={() => openObjects("all")}>
             <Building2 size={18} /> Объекты
           </button>
           <button className={view === "registry" ? "active" : ""} onClick={() => setView("registry")}>
             <ClipboardList size={18} /> Реестр документов
           </button>
         </nav>
-        <button className="primary-action" onClick={() => setWizard({})}>
+        <nav className="nav business-nav">
+          <button className={view === "objects" && businessFilter === "ooo" ? "active biztype-ooo" : "biztype-ooo"} onClick={() => openObjects("ooo")}>
+            <span className="biztype-dot ooo" /> ООО
+          </button>
+          <button className={view === "objects" && businessFilter === "ip" ? "active biztype-ip" : "biztype-ip"} onClick={() => openObjects("ip")}>
+            <span className="biztype-dot ip" /> ИП
+          </button>
+        </nav>
+        <button className="primary-action" onClick={() => setWizard({ businessType: businessFilter !== "all" ? businessFilter : undefined })}>
           <Plus size={18} /> Добавить документ
         </button>
         <div className="sidebar-actions">
@@ -210,10 +260,10 @@ function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <h1>{view === "registry" ? "Глобальный реестр документов" : view === "object" ? "Карточка объекта" : "Объекты"}</h1>
+            <h1>{view === "registry" ? "Глобальный реестр документов" : view === "object" ? "Карточка объекта" : `Объекты${businessModeLabel}`}</h1>
             <p>{view === "registry" ? "Плоская ведомость первичных и вторичных документов" : "Учёт объектов, договоров и закрывающих документов"}</p>
           </div>
-          <button className="icon-button filled" title="Добавить документ" onClick={() => setWizard({ objectId: selectedObjectId })}>
+          <button className="icon-button filled" title="Добавить документ" onClick={() => setWizard({ objectId: selectedObjectId, businessType: businessFilter !== "all" ? businessFilter : undefined })}>
             <FilePlus2 size={20} />
           </button>
         </header>
@@ -223,7 +273,8 @@ function App() {
 
         {view === "objects" && (
           <ObjectList
-            objects={objects}
+            objects={visibleObjects}
+            businessFilter={businessFilter}
             onOpenObject={openObject}
             onCreated={afterMutation}
             onDeleted={afterMutation}
@@ -233,6 +284,7 @@ function App() {
         {view === "object" && selectedObjectId && (
           <ObjectDetails
             objectId={selectedObjectId}
+            businessFilter={businessFilter}
             refreshKey={refreshKey}
             onBack={() => setView("objects")}
             onOpenWizard={(payload) => setWizard(payload)}
@@ -242,7 +294,7 @@ function App() {
 
         {view === "registry" && (
           <Registry
-            onOpenObject={openObject}
+            onOpenObject={openObjectFromRegistry}
             refreshKey={refreshKey}
           />
         )}
@@ -253,6 +305,7 @@ function App() {
           initialObjectId={wizard.objectId}
           initialContractId={wizard.contractId}
           initialAnnexId={wizard.annexId}
+          initialBusinessType={wizard.businessType}
           objects={objects}
           onClose={() => setWizard(null)}
           onSaved={async (context) => {
@@ -266,10 +319,19 @@ function App() {
   );
 }
 
-function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
+function ObjectList({ objects, businessFilter, onOpenObject, onCreated, onDeleted }) {
   const [sort, setSort] = useState({ key: "created_at", direction: "desc" });
   const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", customer: "", address: "", comment: "", folder_created_date: new Date().toISOString().slice(0, 10) });
+  const blankForm = () => ({
+    name: "",
+    customer: "",
+    address: "",
+    comment: "",
+    folder_created_date: new Date().toISOString().slice(0, 10),
+    is_ooo: businessFilter === "ooo",
+    is_ip: businessFilter === "ip",
+  });
+  const [form, setForm] = useState(blankForm());
 
   const rows = useMemo(() => sortRows(objects, sort), [objects, sort]);
 
@@ -277,7 +339,7 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
     event.preventDefault();
     if (!form.name.trim()) return;
     await api.createObject(form);
-    setForm({ name: "", customer: "", address: "", comment: "", folder_created_date: new Date().toISOString().slice(0, 10) });
+    setForm(blankForm());
     setFormOpen(false);
     onCreated();
   }
@@ -320,6 +382,13 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
             Комментарий
             <input value={form.comment} onChange={(event) => setForm({ ...form, comment: event.target.value })} />
           </label>
+          <label>
+            Тип объекта
+            <div className="segmented business-segmented">
+              <button type="button" className={form.is_ooo ? "active biztype-ooo" : ""} onClick={() => setForm({ ...form, is_ooo: !form.is_ooo })}>ООО</button>
+              <button type="button" className={form.is_ip ? "active biztype-ip" : ""} onClick={() => setForm({ ...form, is_ip: !form.is_ip })}>ИП</button>
+            </div>
+          </label>
           <div className="form-actions">
             <button className="ghost-button" type="button" onClick={() => setFormOpen(false)}>Отмена</button>
             <button className="text-button" type="submit"><Save size={16} /> Сохранить</button>
@@ -332,6 +401,7 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
           <thead>
             <tr>
               <SortableTh label="Объект" field="name" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <th>Компания</th>
               <SortableTh label="Заказчик" field="customer" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Адрес" field="address" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Дата папки" field="folder_created_date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -347,6 +417,7 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
             {rows.map((object) => (
               <tr key={object.id} className="clickable-row" onClick={() => onOpenObject(object.id)}>
                 <td className="strong-cell">{object.name}</td>
+                <td><ObjectTypeBadges object={object} /></td>
                 <td>{object.customer || "—"}</td>
                 <td className="muted">{object.address || "—"}</td>
                 <td className="mono">{formatDate(object.folder_created_date)}</td>
@@ -362,7 +433,7 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <EmptyRow columns={10} text="Добавьте первый строительный объект" />}
+            {rows.length === 0 && <EmptyRow columns={11} text="Добавьте первый строительный объект" />}
           </tbody>
         </table>
       </div>
@@ -370,7 +441,7 @@ function ObjectList({ objects, onOpenObject, onCreated, onDeleted }) {
   );
 }
 
-function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }) {
+function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWizard, onChanged }) {
   const [details, setDetails] = useState(null);
   const [form, setForm] = useState(null);
   const [expandedContracts, setExpandedContracts] = useState(new Set());
@@ -390,6 +461,8 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
       address: object.address || "",
       comment: object.comment,
       folder_created_date: object.folder_created_date || "",
+      is_ooo: Boolean(object.is_ooo),
+      is_ip: Boolean(object.is_ip),
     } : null);
   }
 
@@ -401,8 +474,14 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
     return <div className="notice">Объект не найден</div>;
   }
 
-  const contracts = sortRows(details.contracts || [], contractSort);
-  const proposals = sortRows(details.commercial_proposals || [], proposalSort);
+  const contracts = sortRows(
+    (details.contracts || []).filter((contract) => matchesBusinessFilter(contract.business_type, businessFilter)),
+    contractSort,
+  );
+  const proposals = sortRows(
+    (details.commercial_proposals || []).filter((proposal) => matchesBusinessFilter(proposal.business_type, businessFilter)),
+    proposalSort,
+  );
 
   function toggleContract(id) {
     setExpandedContracts((current) => {
@@ -500,7 +579,7 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
       <section className="panel object-card">
         <div className="panel-toolbar">
           <button className="ghost-button" onClick={onBack}>Назад</button>
-          <button className="text-button" onClick={() => onOpenWizard({ objectId: details.id })}><Plus size={16} /> Документ</button>
+          <button className="text-button" onClick={() => onOpenWizard({ objectId: details.id, businessType: businessFilter !== "all" ? businessFilter : undefined })}><Plus size={16} /> Документ</button>
         </div>
         <form className="object-form" onSubmit={saveObject}>
           <label>
@@ -519,6 +598,13 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
             Дата создания папки
             <input type="date" value={form.folder_created_date || ""} onChange={(event) => setForm({ ...form, folder_created_date: event.target.value })} />
           </label>
+          <label>
+            Тип объекта
+            <div className="segmented business-segmented">
+              <button type="button" className={form.is_ooo ? "active biztype-ooo" : ""} onClick={() => setForm({ ...form, is_ooo: !form.is_ooo })}>ООО</button>
+              <button type="button" className={form.is_ip ? "active biztype-ip" : ""} onClick={() => setForm({ ...form, is_ip: !form.is_ip })}>ИП</button>
+            </div>
+          </label>
           <label className="wide">
             Комментарий
             <textarea value={form.comment || ""} onChange={(event) => setForm({ ...form, comment: event.target.value })} rows={3} />
@@ -534,6 +620,7 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
             <button className={proposalSort.key === "number" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "number"))}>Номер {proposalSort.key === "number" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "date" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "date"))}>Дата {proposalSort.key === "date" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "amount" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "amount"))}>Сумма {proposalSort.key === "amount" ? sortArrow(proposalSort) : ""}</button>
+            <button className={proposalSort.key === "advance_percent" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "advance_percent"))}>Аванс {proposalSort.key === "advance_percent" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "status" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "status"))}>Статус {proposalSort.key === "status" ? sortArrow(proposalSort) : ""}</button>
           </div>
         </div>
@@ -553,6 +640,7 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
             <button className={contractSort.key === "number" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "number"))}>Номер {contractSort.key === "number" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "date" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "date"))}>Дата {contractSort.key === "date" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "amount" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "amount"))}>Сумма {contractSort.key === "amount" ? sortArrow(contractSort) : ""}</button>
+            <button className={contractSort.key === "advance_percent" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "advance_percent"))}>Аванс {contractSort.key === "advance_percent" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "status" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "status"))}>Статус {contractSort.key === "status" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "payment_status" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "payment_status"))}>Оплата {contractSort.key === "payment_status" ? sortArrow(contractSort) : ""}</button>
           </div>
@@ -571,6 +659,13 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
                     {isOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                   </button>
                   <FileText size={18} className="row-icon" />
+                  <EditableValue
+                    type="select"
+                    value={contract.business_type || ""}
+                    options={[{ value: "", label: "Не задано" }, ...businessTypeOptions.map((value) => ({ value, label: businessTypeLabels[value] }))]}
+                    displayValue={<BusinessBadge value={contract.business_type} />}
+                    onCommit={(value) => updateContract(contract, { business_type: value || null })}
+                  />
                   <EditableValue
                     className="strong-cell"
                     value={contract.number}
@@ -593,23 +688,23 @@ function ObjectDetails({ objectId, refreshKey, onBack, onOpenWizard, onChanged }
                     onCommit={(value) => updateContract(contract, { amount: value })}
                   />
                   <EditableValue
+                    className="mono"
+                    type="number"
+                    value={contract.advance_percent ?? ""}
+                    displayValue={formatPercent(contract.advance_percent)}
+                    onCommit={(value) => updateContract(contract, { advance_percent: value })}
+                  />
+                  <EditableValue
                     type="select"
                     value={contract.status}
                     options={statusOptions.map((value) => ({ value, label: statusLabels[value] }))}
                     displayValue={<Badge type="status" value={contract.status} />}
                     onCommit={(value) => updateContract(contract, { status: value })}
                   />
-                  <EditableValue
-                    type="select"
-                    value={contract.payment_status}
-                    options={paymentOptions.map((value) => ({ value, label: paymentLabels[value] }))}
-                    displayValue={<Badge type="payment" value={contract.payment_status} />}
-                    onCommit={(value) => updateContract(contract, paymentPatch(contract, value))}
-                  />
-                  <PartialPaymentValue
-                    document={contract}
-                    onCommit={(value) => updateContract(contract, { partial_payment_amount: value })}
-                  />
+                  <span title="Рассчитывается по счетам договора">
+                    <Badge type="payment" value={contract.payment_status} />
+                  </span>
+                  <PartialPaymentValue document={contract} readOnly />
                   <EditableValue
                     value={contract.comment}
                     emptyValue="метка"
@@ -687,9 +782,11 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
     <div className="proposal-list">
       <div className="proposal-header">
         <span></span>
+        <span>Компания</span>
         <span>Номер</span>
         <span>Дата</span>
         <span>Сумма</span>
+        <span>Аванс</span>
         <span>Статус</span>
         <span>Комментарий</span>
         <span>Файл</span>
@@ -698,6 +795,13 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
       {proposals.map((proposal) => (
         <div className="proposal-row" key={proposal.id}>
           <FileInput size={18} className="row-icon" />
+          <EditableValue
+            type="select"
+            value={proposal.business_type || ""}
+            options={[{ value: "", label: "Не задано" }, ...businessTypeOptions.map((value) => ({ value, label: businessTypeLabels[value] }))]}
+            displayValue={<BusinessBadge value={proposal.business_type} />}
+            onCommit={(value) => onUpdate(proposal, { business_type: value || null })}
+          />
           <EditableValue
             className="strong-cell"
             value={proposal.number}
@@ -718,6 +822,13 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
             value={proposal.amount ?? ""}
             displayValue={formatMoney(proposal.amount)}
             onCommit={(value) => onUpdate(proposal, { amount: value })}
+          />
+          <EditableValue
+            className="mono"
+            type="number"
+            value={proposal.advance_percent ?? ""}
+            displayValue={formatPercent(proposal.advance_percent)}
+            onCommit={(value) => onUpdate(proposal, { advance_percent: value })}
           />
           <EditableValue
             type="select"
@@ -745,9 +856,17 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
   );
 }
 
-function PartialPaymentValue({ document, onCommit }) {
+function PartialPaymentValue({ document, onCommit, readOnly = false }) {
+  if (document.payment_status === "paid") {
+    return <span className="mono amount">{formatMoney(document.amount)}</span>;
+  }
+
   if (document.payment_status !== "partial") {
     return <span className="muted">—</span>;
+  }
+
+  if (readOnly) {
+    return <span className="mono amount">{formatMoney(document.partial_payment_amount)}</span>;
   }
 
   return (
@@ -780,6 +899,7 @@ function FileCell({ document, onReplace }) {
 
 function ProposalContractModal({ proposal, onClose, onSaved }) {
   const [file, setFile] = useState(null);
+  const [businessType, setBusinessType] = useState(proposal.business_type || "");
   const [form, setForm] = useState({
     number: "",
     date: new Date().toISOString().slice(0, 10),
@@ -787,6 +907,7 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
     status: "approved",
     payment_status: "unpaid",
     partial_payment_amount: "",
+    advance_percent: proposal.advance_percent ?? "",
     comment: proposal.comment || "",
     comment_color: "pink",
   });
@@ -799,10 +920,15 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
 
   async function submit(event) {
     event.preventDefault();
+    if (!businessType) {
+      setError("Выберите компанию (ООО или ИП)");
+      return;
+    }
     try {
       setError("");
       await onSaved({
         ...form,
+        business_type: businessType,
         sourceFilePath: file?.sourceFilePath || null,
         original_filename: file?.originalFilename || null,
       });
@@ -835,6 +961,13 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
             <input value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} autoFocus />
           </label>
           <label>
+            Компания
+            <div className="segmented business-segmented">
+              <button type="button" className={businessType === "ooo" ? "active biztype-ooo" : ""} onClick={() => setBusinessType("ooo")}>ООО</button>
+              <button type="button" className={businessType === "ip" ? "active biztype-ip" : ""} onClick={() => setBusinessType("ip")}>ИП</button>
+            </div>
+          </label>
+          <label>
             Дата договора
             <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} />
           </label>
@@ -843,23 +976,16 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
             <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
           <label>
+            Аванс, %
+            <input type="number" min="0" max="100" step="1" value={form.advance_percent} onChange={(event) => setForm({ ...form, advance_percent: event.target.value })} />
+          </label>
+          <label>
             Статус согласования
             <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
               {statusOptions.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
             </select>
           </label>
-          <label>
-            Статус оплаты
-            <select value={form.payment_status} onChange={(event) => setForm({ ...form, ...paymentPatch(form, event.target.value) })}>
-              {paymentOptions.map((status) => <option key={status} value={status}>{paymentLabels[status]}</option>)}
-            </select>
-          </label>
-          {form.payment_status === "partial" && (
-            <label>
-              Сумма частичной оплаты
-              <input type="number" min="0" step="0.01" value={form.partial_payment_amount} onChange={(event) => setForm({ ...form, partial_payment_amount: event.target.value })} />
-            </label>
-          )}
+          <p className="muted field-note">Статус оплаты договора рассчитывается автоматически по прикреплённым счетам.</p>
           <label>
             Комментарий-метка
             <input maxLength={24} value={form.comment} onChange={(event) => setForm({ ...form, comment: event.target.value })} />
@@ -884,9 +1010,11 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
       <div className="annex-header">
         <span></span>
         <span></span>
+        <span>Компания</span>
         <SortableDiv label="ДС" field="id" sort={sort} onSort={onSort} />
         <SortableDiv label="Дата" field="date" sort={sort} onSort={onSort} />
         <SortableDiv label="Сумма" field="amount" sort={sort} onSort={onSort} />
+        <SortableDiv label="Аванс" field="advance_percent" sort={sort} onSort={onSort} />
         <SortableDiv label="Статус" field="status" sort={sort} onSort={onSort} />
         <SortableDiv label="Оплата" field="payment_status" sort={sort} onSort={onSort} />
         <SortableDiv label="Оплачено" field="partial_payment_amount" sort={sort} onSort={onSort} />
@@ -903,6 +1031,7 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
                 {annexOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               </button>
               <FileArchive size={17} className="row-icon" />
+              <BusinessBadge value={annex.business_type} className="row-biztype" />
               <span className="strong-cell">ДС {annex.id}</span>
               <EditableValue
                 className="mono"
@@ -919,23 +1048,23 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
                 onCommit={(value) => onUpdateAnnex(annex, { amount: value })}
               />
               <EditableValue
+                className="mono"
+                type="number"
+                value={annex.advance_percent ?? ""}
+                displayValue={formatPercent(annex.advance_percent)}
+                onCommit={(value) => onUpdateAnnex(annex, { advance_percent: value })}
+              />
+              <EditableValue
                 type="select"
                 value={annex.status}
                 options={statusOptions.map((value) => ({ value, label: statusLabels[value] }))}
                 displayValue={<Badge type="status" value={annex.status} />}
                 onCommit={(value) => onUpdateAnnex(annex, { status: value })}
               />
-              <EditableValue
-                type="select"
-                value={annex.payment_status}
-                options={paymentOptions.map((value) => ({ value, label: paymentLabels[value] }))}
-                displayValue={<Badge type="payment" value={annex.payment_status} />}
-                onCommit={(value) => onUpdateAnnex(annex, paymentPatch(annex, value))}
-              />
-              <PartialPaymentValue
-                document={annex}
-                onCommit={(value) => onUpdateAnnex(annex, { partial_payment_amount: value })}
-              />
+              <span title="Рассчитывается по счетам ДС">
+                <Badge type="payment" value={annex.payment_status} />
+              </span>
+              <PartialPaymentValue document={annex} readOnly />
               <FileCell document={annex} onReplace={() => onReplaceAnnexFile(annex)} />
               <button className="icon-button danger push-right" title="Удалить ДС" onClick={() => onDeleteAnnex(annex.id)}>
                 <Trash2 size={15} />
@@ -973,6 +1102,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
       <table className="data-table compact-table">
         <thead>
           <tr>
+            <th>Компания</th>
             <SortableTh label="Тип" field="doc_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Номер" field="number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Дата" field="date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -987,6 +1117,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
         <tbody>
           {rows.map((doc) => (
             <tr key={doc.id}>
+              <td><BusinessBadge value={doc.business_type} /></td>
               <td>
                 <EditableValue
                   type="select"
@@ -1054,7 +1185,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <EmptyRow columns={9} text="Документов нет" />}
+          {rows.length === 0 && <EmptyRow columns={10} text="Документов нет" />}
         </tbody>
       </table>
     </div>
@@ -1064,7 +1195,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
 function Registry({ onOpenObject, refreshKey }) {
   const [rows, setRows] = useState([]);
   const [sort, setSort] = useState({ key: "date", direction: "desc" });
-  const [filters, setFilters] = useState({ search: "", status: "all", payment: "all", docType: "all", category: "all" });
+  const [filters, setFilters] = useState({ search: "", status: "all", payment: "all", docType: "all", category: "all", businessType: "all" });
 
   useEffect(() => {
     api.listRegistryDocuments().then(setRows);
@@ -1078,7 +1209,8 @@ function Registry({ onOpenObject, refreshKey }) {
         && (filters.status === "all" || row.status === filters.status)
         && (filters.payment === "all" || row.payment_status === filters.payment)
         && (filters.docType === "all" || row.doc_type === filters.docType)
-        && (filters.category === "all" || row.category === filters.category);
+        && (filters.category === "all" || row.category === filters.category)
+        && (filters.businessType === "all" || row.business_type === filters.businessType);
     });
     return sortRows(filtered, sort);
   }, [rows, filters, sort]);
@@ -1109,6 +1241,10 @@ function Registry({ onOpenObject, refreshKey }) {
           <option value="primary">Первичные</option>
           <option value="secondary">Вторичные</option>
         </select>
+        <select value={filters.businessType} onChange={(event) => setFilters({ ...filters, businessType: event.target.value })}>
+          <option value="all">Любая компания</option>
+          {businessTypeOptions.map((type) => <option key={type} value={type}>{businessTypeLabels[type]}</option>)}
+        </select>
       </div>
 
       <div className="table-wrap">
@@ -1116,6 +1252,7 @@ function Registry({ onOpenObject, refreshKey }) {
           <thead>
             <tr>
               <SortableTh label="Объект" field="object_name" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <th>Компания</th>
               <SortableTh label="Договор" field="contract_number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="ДС" field="annex_label" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Тип" field="doc_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -1132,6 +1269,7 @@ function Registry({ onOpenObject, refreshKey }) {
             {visibleRows.map((row) => (
               <tr key={`${row.source_type}-${row.source_id}-${row.annex_id || 0}`} className="clickable-row" onClick={() => onOpenObject(row.object_id)}>
                 <td className="strong-cell">{row.object_name}</td>
+                <td><BusinessBadge value={row.business_type} /></td>
                 <td>{row.contract_number || "—"}</td>
                 <td>{row.annex_label || "—"}</td>
                 <td><DocIcon type={row.doc_type} /> {docTypeLabels[row.doc_type]}</td>
@@ -1144,7 +1282,7 @@ function Registry({ onOpenObject, refreshKey }) {
                 <td className="mono">{row.payment_status === "partial" ? formatMoney(row.partial_payment_amount) : "—"}</td>
               </tr>
             ))}
-            {visibleRows.length === 0 && <EmptyRow columns={11} text="По фильтрам ничего не найдено" />}
+            {visibleRows.length === 0 && <EmptyRow columns={12} text="По фильтрам ничего не найдено" />}
           </tbody>
         </table>
       </div>
@@ -1152,7 +1290,7 @@ function Registry({ onOpenObject, refreshKey }) {
   );
 }
 
-function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, objects, onClose, onSaved }) {
+function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, initialBusinessType, objects, onClose, onSaved }) {
   const [file, setFile] = useState(null);
   const [category, setCategory] = useState(initialContractId ? "secondary" : "contract");
   const [parentType, setParentType] = useState(initialAnnexId ? "annex" : "contract");
@@ -1161,6 +1299,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
   const [contractId, setContractId] = useState(initialContractId || "");
   const [annexId, setAnnexId] = useState(initialAnnexId || "");
   const [docType, setDocType] = useState("act");
+  const [businessType, setBusinessType] = useState(initialBusinessType || "");
   const [form, setForm] = useState({
     number: "",
     date: new Date().toISOString().slice(0, 10),
@@ -1168,6 +1307,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
     status: "na",
     payment_status: "unpaid",
     partial_payment_amount: "",
+    advance_percent: "",
     comment: "",
     comment_color: "pink",
   });
@@ -1188,12 +1328,20 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
 
   const selectedContract = objectDetails?.contracts?.find((contract) => contract.id === Number(contractId));
   const annexes = selectedContract?.annexes || [];
+  const selectedObject = objects.find((object) => object.id === Number(objectId));
+  const needsBusinessType = category === "contract" || category === "commercial_proposal";
 
   useEffect(() => {
     if (parentType === "annex" && !annexId && annexes.length) {
       setAnnexId(annexes[0].id);
     }
   }, [parentType, contractId, annexes.length]);
+
+  useEffect(() => {
+    if (!needsBusinessType || businessType || !selectedObject) return;
+    if (selectedObject.is_ooo && !selectedObject.is_ip) setBusinessType("ooo");
+    else if (selectedObject.is_ip && !selectedObject.is_ooo) setBusinessType("ip");
+  }, [needsBusinessType, businessType, selectedObject]);
 
   async function chooseFile() {
     const selected = await api.selectFile();
@@ -1202,7 +1350,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
 
   function canSave() {
     if (!objectId) return false;
-    if (category === "contract" || category === "commercial_proposal") return true;
+    if (needsBusinessType) return Boolean(businessType);
     if (!contractId) return false;
     if (category === "secondary" && parentType === "annex") return Boolean(annexId);
     return true;
@@ -1228,6 +1376,8 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
           object_id: Number(objectId),
           number: form.number,
           comment: form.comment,
+          business_type: businessType,
+          advance_percent: form.advance_percent,
         });
       } else if (category === "contract") {
         await api.createContract({
@@ -1236,11 +1386,14 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
           number: form.number,
           comment: form.comment,
           comment_color: form.comment_color,
+          business_type: businessType,
+          advance_percent: form.advance_percent,
         });
       } else if (category === "annex") {
         await api.createAnnex({
           ...base,
           contract_id: Number(contractId),
+          advance_percent: form.advance_percent,
         });
       } else {
         await api.createSecondaryDocument({
@@ -1288,11 +1441,21 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
         <div className="form-section wizard-grid">
           <label>
             Объект
-            <select value={objectId} onChange={(event) => { setObjectId(event.target.value); setContractId(""); setAnnexId(""); }}>
+            <select value={objectId} onChange={(event) => { setObjectId(event.target.value); setContractId(""); setAnnexId(""); setBusinessType(""); }}>
               <option value="">Выберите объект</option>
               {objects.map((object) => <option key={object.id} value={object.id}>{object.name}</option>)}
             </select>
           </label>
+
+          {needsBusinessType && (
+            <label>
+              Компания
+              <div className="segmented business-segmented">
+                <button type="button" className={businessType === "ooo" ? "active biztype-ooo" : ""} onClick={() => setBusinessType("ooo")}>ООО</button>
+                <button type="button" className={businessType === "ip" ? "active biztype-ip" : ""} onClick={() => setBusinessType("ip")}>ИП</button>
+              </div>
+            </label>
+          )}
 
           {category !== "contract" && category !== "commercial_proposal" && (
             <label>
@@ -1362,13 +1525,19 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
             Сумма
             <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
+          {category !== "secondary" && (
+            <label>
+              Аванс, %
+              <input type="number" min="0" max="100" step="1" value={form.advance_percent} onChange={(event) => setForm({ ...form, advance_percent: event.target.value })} />
+            </label>
+          )}
           <label>
             Статус согласования
             <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
               {statusOptions.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
             </select>
           </label>
-          {category !== "commercial_proposal" && (
+          {category === "secondary" && (
             <label>
               Статус оплаты
               <select value={form.payment_status} onChange={(event) => setForm({ ...form, ...paymentPatch(form, event.target.value) })}>
@@ -1376,11 +1545,14 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, ob
               </select>
             </label>
           )}
-          {category !== "commercial_proposal" && form.payment_status === "partial" && (
+          {category === "secondary" && form.payment_status === "partial" && (
             <label>
               Сумма частичной оплаты
               <input type="number" min="0" step="0.01" value={form.partial_payment_amount} onChange={(event) => setForm({ ...form, partial_payment_amount: event.target.value })} />
             </label>
+          )}
+          {(category === "contract" || category === "annex") && (
+            <p className="muted field-note">Статус оплаты договора и ДС рассчитывается автоматически по прикреплённым счетам.</p>
           )}
         </div>
 
@@ -1471,6 +1643,25 @@ function ChoiceCard({ active, icon, title, text, onClick }) {
 function Badge({ type, value }) {
   const label = type === "payment" ? paymentLabels[value] : statusLabels[value];
   return <span className={`badge ${type}-${value}`}>{label}</span>;
+}
+
+function BusinessBadge({ value, className = "" }) {
+  if (!value) {
+    return <span className={`biztype-chip unset ${className}`} title="Не задано">Не задано</span>;
+  }
+  return <span className={`biztype-chip ${value} ${className}`}>{businessTypeLabels[value]}</span>;
+}
+
+function ObjectTypeBadges({ object }) {
+  if (!object.is_ooo && !object.is_ip) {
+    return <span className="biztype-chip unset" title="Не задано">Не задано</span>;
+  }
+  return (
+    <span className="biztype-chip-group">
+      {Boolean(object.is_ooo) && <span className="biztype-chip ooo">ООО</span>}
+      {Boolean(object.is_ip) && <span className="biztype-chip ip">ИП</span>}
+    </span>
+  );
 }
 
 function DocIcon({ type }) {

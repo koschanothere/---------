@@ -1,4 +1,4 @@
-const STORAGE_KEY = "gureevdoc-demo-state-021-rich";
+const STORAGE_KEY = "gureevdoc-demo-state-022-biztype";
 
 const sampleState = {
   nextId: 25,
@@ -10,6 +10,8 @@ const sampleState = {
       address: "Москва, Северный проспект, 14",
       comment: "Монолит, 2 очередь. Проверить закрывающие за июль.",
       folder_created_date: "2026-07-18",
+      is_ooo: 1,
+      is_ip: 0,
       created_at: "2026-07-18T09:00:00.000Z",
     },
     {
@@ -19,6 +21,8 @@ const sampleState = {
       address: "Московская область, промзона Восточная",
       comment: "Генподряд, инженерные сети.",
       folder_created_date: "2026-06-02",
+      is_ooo: 0,
+      is_ip: 1,
       created_at: "2026-06-02T09:00:00.000Z",
     },
     {
@@ -28,6 +32,8 @@ const sampleState = {
       address: "Москва, ул. Правды, 22",
       comment: "Отделка общественных зон, высокий приоритет.",
       folder_created_date: "2026-08-19",
+      is_ooo: 1,
+      is_ip: 1,
       created_at: "2026-08-19T09:00:00.000Z",
     },
     {
@@ -37,6 +43,8 @@ const sampleState = {
       address: "Химки, ул. Лесная, 7",
       comment: "Тендерная стадия, ждём обратную связь по КП.",
       folder_created_date: "2026-09-03",
+      is_ooo: 0,
+      is_ip: 0,
       created_at: "2026-09-03T09:00:00.000Z",
     },
   ],
@@ -48,6 +56,7 @@ const sampleState = {
       date: "2026-08-28",
       amount: 3400000,
       status: "pending",
+      business_type: "ooo",
       comment: "кровля",
       file_path: null,
       original_filename: "kp-21.pdf",
@@ -60,6 +69,7 @@ const sampleState = {
       date: "2026-09-08",
       amount: 5750000,
       status: "not_sent",
+      business_type: null,
       comment: "тендер",
       file_path: null,
       original_filename: "kp-school-draft.pdf",
@@ -72,6 +82,7 @@ const sampleState = {
       date: "2026-08-24",
       amount: 2100000,
       status: "approved",
+      business_type: "ip",
       comment: "витражи",
       file_path: null,
       original_filename: "kp-vitraji.pdf",
@@ -88,6 +99,7 @@ const sampleState = {
       status: "approved",
       payment_status: "partial",
       partial_payment_amount: 7000000,
+      business_type: "ooo",
       comment: "фасад",
       comment_color: "pink",
       file_path: null,
@@ -103,6 +115,7 @@ const sampleState = {
       status: "pending",
       payment_status: "unpaid",
       partial_payment_amount: null,
+      business_type: "ip",
       comment: "сети",
       comment_color: "violet",
       file_path: null,
@@ -118,6 +131,7 @@ const sampleState = {
       status: "approved",
       payment_status: "paid",
       partial_payment_amount: null,
+      business_type: "ooo",
       comment: "отделка",
       comment_color: "violet",
       file_path: null,
@@ -133,6 +147,7 @@ const sampleState = {
       status: "pending",
       payment_status: "partial",
       partial_payment_amount: 1500000,
+      business_type: null,
       comment: "срочно",
       comment_color: "pink",
       file_path: null,
@@ -343,13 +358,20 @@ function getState() {
     return clone(sampleState);
   }
   const state = JSON.parse(raw);
-  state.commercial_proposals ||= [];
+  state.commercial_proposals = (state.commercial_proposals || []).map((proposal) => ({
+    business_type: null,
+    advance_percent: null,
+    ...proposal,
+  }));
   state.contracts = (state.contracts || []).map((contract) => ({
     partial_payment_amount: null,
+    business_type: null,
+    advance_percent: null,
     ...contract,
   }));
   state.annexes = (state.annexes || []).map((annex) => ({
     partial_payment_amount: null,
+    advance_percent: null,
     ...annex,
   }));
   state.secondary_documents = (state.secondary_documents || []).map((document) => ({
@@ -360,6 +382,8 @@ function getState() {
   state.objects = (state.objects || []).map((object) => ({
     customer: "",
     address: "",
+    is_ooo: 0,
+    is_ip: 0,
     ...object,
   }));
   return state;
@@ -379,6 +403,42 @@ function now() {
   return new Date().toISOString();
 }
 
+function invoicePaidAmount(invoice) {
+  if (invoice.payment_status === "paid") return invoice.amount || 0;
+  if (invoice.payment_status === "partial") return invoice.partial_payment_amount || 0;
+  return 0;
+}
+
+function sumPaidInvoices(state, parentType, parentId) {
+  return state.secondary_documents
+    .filter((doc) => doc.parent_type === parentType && doc.parent_id === parentId && doc.doc_type === "invoice")
+    .reduce((sum, invoice) => sum + invoicePaidAmount(invoice), 0);
+}
+
+function deriveDocumentPayment(amount, paidSum) {
+  if (paidSum <= 0) return { payment_status: "unpaid", partial_payment_amount: null };
+  if (amount && paidSum >= amount) return { payment_status: "paid", partial_payment_amount: null };
+  return { payment_status: "partial", partial_payment_amount: paidSum };
+}
+
+function withComputedPayment(state, row, parentType) {
+  if (!row) return row;
+  const paidSum = sumPaidInvoices(state, parentType, row.id);
+  return { ...row, ...deriveDocumentPayment(row.amount, paidSum) };
+}
+
+function normalizePercent(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isNaN(number) ? null : number;
+}
+
+function paymentPartialAmount(payload) {
+  if (payload.payment_status === "partial") return Number(payload.partial_payment_amount || 0) || null;
+  if (payload.payment_status === "paid") return payload.amount === "" ? null : Number(payload.amount) || null;
+  return null;
+}
+
 function enrichObject(state, object) {
   const contracts = state.contracts
     .filter((contract) => contract.object_id === object.id)
@@ -386,19 +446,31 @@ function enrichObject(state, object) {
       const annexes = state.annexes
         .filter((annex) => annex.contract_id === contract.id)
         .map((annex) => ({
-          ...annex,
-          documents: state.secondary_documents.filter((doc) => doc.parent_type === "annex" && doc.parent_id === annex.id),
+          ...withComputedPayment(state, annex, "annex"),
+          business_type: contract.business_type,
+          documents: state.secondary_documents
+            .filter((doc) => doc.parent_type === "annex" && doc.parent_id === annex.id)
+            .map((doc) => ({ ...doc, business_type: contract.business_type })),
         }));
 
       return {
-        ...contract,
+        ...withComputedPayment(state, contract, "contract"),
         annexes,
-        documents: state.secondary_documents.filter((doc) => doc.parent_type === "contract" && doc.parent_id === contract.id),
+        documents: state.secondary_documents
+          .filter((doc) => doc.parent_type === "contract" && doc.parent_id === contract.id)
+          .map((doc) => ({ ...doc, business_type: contract.business_type })),
       };
     });
 
   const commercial_proposals = state.commercial_proposals.filter((proposal) => proposal.object_id === object.id);
   return { ...object, commercial_proposals, contracts };
+}
+
+function cascadeObjectBusinessType(state, objectId, businessType) {
+  const object = state.objects.find((item) => item.id === Number(objectId));
+  if (!object) return;
+  if (businessType === "ooo" && !object.is_ooo) object.is_ooo = 1;
+  if (businessType === "ip" && !object.is_ip) object.is_ip = 1;
 }
 
 function listRegistryDocumentsFromState(state) {
@@ -417,6 +489,7 @@ function listRegistryDocumentsFromState(state) {
         annex_label: null,
         doc_type: "commercial_proposal",
         category: "primary",
+        business_type: proposal.business_type || null,
         date: proposal.date,
         amount: proposal.amount,
         status: proposal.status,
@@ -441,6 +514,7 @@ function listRegistryDocumentsFromState(state) {
         annex_label: null,
         doc_type: "contract",
         category: "primary",
+        business_type: contract.business_type || null,
         date: contract.date,
         amount: contract.amount,
         status: contract.status,
@@ -464,6 +538,7 @@ function listRegistryDocumentsFromState(state) {
           annex_label: `ДС ${annex.id}`,
           doc_type: "annex",
           category: "primary",
+          business_type: contract.business_type || null,
           date: annex.date,
           amount: annex.amount,
           status: annex.status,
@@ -489,6 +564,7 @@ function listRegistryDocumentsFromState(state) {
           annex_label: null,
           document_number: doc.number || "",
           category: "secondary",
+          business_type: contract.business_type || null,
         });
       }
 
@@ -507,12 +583,22 @@ function listRegistryDocumentsFromState(state) {
             annex_label: `ДС ${annex.id}`,
             document_number: doc.number || "",
             category: "secondary",
+            business_type: contract.business_type || null,
           });
         }
       }
     }
   }
-  return rows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const computedRows = rows.map((row) => {
+    if (row.source_type === "contract") {
+      return { ...row, ...deriveDocumentPayment(row.amount, sumPaidInvoices(state, "contract", row.source_id)) };
+    }
+    if (row.source_type === "annex") {
+      return { ...row, ...deriveDocumentPayment(row.amount, sumPaidInvoices(state, "annex", row.annex_id)) };
+    }
+    return row;
+  });
+  return computedRows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 }
 
 function makeMockApi() {
@@ -552,6 +638,8 @@ function makeMockApi() {
         address: payload.address || "",
         comment: payload.comment || "",
         folder_created_date: payload.folder_created_date || null,
+        is_ooo: payload.is_ooo ? 1 : 0,
+        is_ip: payload.is_ip ? 1 : 0,
         created_at: now(),
       };
       state.objects.push(object);
@@ -583,8 +671,9 @@ function makeMockApi() {
     },
     async createCommercialProposal(payload) {
       const state = getState();
-      const proposal = { id: nextId(state), ...payload, created_at: now(), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
+      const proposal = { id: nextId(state), ...payload, created_at: now(), advance_percent: normalizePercent(payload.advance_percent), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       state.commercial_proposals.push(proposal);
+      cascadeObjectBusinessType(state, proposal.object_id, proposal.business_type);
       setState(state);
       return proposal;
     },
@@ -598,10 +687,13 @@ function makeMockApi() {
           date: payload.date || null,
           amount: payload.amount === "" ? null : Number(payload.amount),
           status: payload.status,
+          business_type: payload.business_type !== undefined ? (payload.business_type || null) : state.commercial_proposals[index].business_type,
+          advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.commercial_proposals[index].advance_percent,
           comment: payload.comment || "",
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.commercial_proposals[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.commercial_proposals[index].original_filename,
         };
+        cascadeObjectBusinessType(state, state.commercial_proposals[index].object_id, state.commercial_proposals[index].business_type);
       }
       setState(state);
       return state.commercial_proposals[index] || null;
@@ -623,8 +715,12 @@ function makeMockApi() {
         date: payload.date || null,
         amount: payload.amount === "" ? null : Number(payload.amount),
         status: payload.status,
-        payment_status: payload.payment_status,
-        partial_payment_amount: payload.payment_status === "partial" ? Number(payload.partial_payment_amount || 0) || null : null,
+        payment_status: "unpaid",
+        partial_payment_amount: null,
+        business_type: payload.business_type || proposal.business_type || null,
+        advance_percent: payload.advance_percent !== undefined && payload.advance_percent !== ""
+          ? normalizePercent(payload.advance_percent)
+          : proposal.advance_percent ?? null,
         comment: payload.comment || proposal.comment || "",
         comment_color: payload.comment_color || "pink",
         file_path: payload.sourceFilePath || null,
@@ -632,6 +728,7 @@ function makeMockApi() {
         created_at: now(),
       };
       state.contracts.push(contract);
+      cascadeObjectBusinessType(state, contract.object_id, contract.business_type);
       state.secondary_documents.push({
         id: nextId(state),
         parent_type: "contract",
@@ -649,15 +746,17 @@ function makeMockApi() {
       });
       state.commercial_proposals = state.commercial_proposals.filter((item) => item.id !== proposal.id);
       setState(state);
-      return contract;
+      return withComputedPayment(state, contract, "contract");
     },
     async createContract(payload) {
       const state = getState();
-      const contract = { id: nextId(state), ...payload, created_at: now(), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
-      contract.partial_payment_amount = contract.payment_status === "partial" ? Number(contract.partial_payment_amount || 0) || null : null;
+      const contract = { id: nextId(state), ...payload, created_at: now(), payment_status: "unpaid", partial_payment_amount: null, file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
+      contract.business_type = contract.business_type || null;
+      contract.advance_percent = normalizePercent(contract.advance_percent);
       state.contracts.push(contract);
+      cascadeObjectBusinessType(state, contract.object_id, contract.business_type);
       setState(state);
-      return contract;
+      return withComputedPayment(state, contract, "contract");
     },
     async updateContract(payload) {
       const state = getState();
@@ -669,16 +768,17 @@ function makeMockApi() {
           date: payload.date || null,
           amount: payload.amount === "" ? null : Number(payload.amount),
           status: payload.status,
-          payment_status: payload.payment_status,
-          partial_payment_amount: payload.payment_status === "partial" ? Number(payload.partial_payment_amount || 0) || null : null,
+          business_type: payload.business_type !== undefined ? (payload.business_type || null) : state.contracts[index].business_type,
+          advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.contracts[index].advance_percent,
           comment: payload.comment || "",
           comment_color: payload.comment_color || "pink",
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.contracts[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.contracts[index].original_filename,
         };
+        cascadeObjectBusinessType(state, state.contracts[index].object_id, state.contracts[index].business_type);
       }
       setState(state);
-      return state.contracts[index] || null;
+      return index >= 0 ? withComputedPayment(state, state.contracts[index], "contract") : null;
     },
     async deleteContract(id) {
       const state = getState();
@@ -695,11 +795,11 @@ function makeMockApi() {
     },
     async createAnnex(payload) {
       const state = getState();
-      const annex = { id: nextId(state), ...payload, created_at: now(), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
-      annex.partial_payment_amount = annex.payment_status === "partial" ? Number(annex.partial_payment_amount || 0) || null : null;
+      const annex = { id: nextId(state), ...payload, created_at: now(), payment_status: "unpaid", partial_payment_amount: null, file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
+      annex.advance_percent = normalizePercent(annex.advance_percent);
       state.annexes.push(annex);
       setState(state);
-      return annex;
+      return withComputedPayment(state, annex, "annex");
     },
     async updateAnnex(payload) {
       const state = getState();
@@ -710,14 +810,13 @@ function makeMockApi() {
           date: payload.date || null,
           amount: payload.amount === "" ? null : Number(payload.amount),
           status: payload.status,
-          payment_status: payload.payment_status,
-          partial_payment_amount: payload.payment_status === "partial" ? Number(payload.partial_payment_amount || 0) || null : null,
+          advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.annexes[index].advance_percent,
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.annexes[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.annexes[index].original_filename,
         };
       }
       setState(state);
-      return state.annexes[index] || null;
+      return index >= 0 ? withComputedPayment(state, state.annexes[index], "annex") : null;
     },
     async deleteAnnex(id) {
       const state = getState();
@@ -733,7 +832,7 @@ function makeMockApi() {
         id: nextId(state),
         ...payload,
         number: payload.number || "",
-        partial_payment_amount: payload.payment_status === "partial" ? Number(payload.partial_payment_amount || 0) || null : null,
+        partial_payment_amount: paymentPartialAmount(payload),
         file_path: payload.sourceFilePath || null,
         original_filename: payload.original_filename || "demo-document.pdf",
         created_at: now(),
@@ -754,7 +853,7 @@ function makeMockApi() {
           amount: payload.amount === "" ? null : Number(payload.amount),
           status: payload.status,
           payment_status: payload.payment_status,
-          partial_payment_amount: payload.payment_status === "partial" ? Number(payload.partial_payment_amount || 0) || null : null,
+          partial_payment_amount: paymentPartialAmount(payload),
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.secondary_documents[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.secondary_documents[index].original_filename,
         };

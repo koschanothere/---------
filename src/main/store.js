@@ -9,12 +9,13 @@ const { stringify } = require("csv-stringify/sync");
 const APPROVAL_STATUSES = ["na", "approved", "pending", "not_sent"];
 const PAYMENT_STATUSES = ["paid", "partial", "unpaid"];
 const COMMENT_COLORS = ["pink", "violet"];
+const BUSINESS_TYPES = ["ooo", "ip"];
 const DOC_TYPES = ["commercial_proposal", "act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
 const TABLE_COLUMNS = {
-  objects: ["id", "name", "customer", "address", "comment", "folder_created_date", "created_at"],
-  commercial_proposals: ["id", "object_id", "number", "date", "amount", "status", "comment", "file_path", "original_filename", "created_at"],
-  contracts: ["id", "object_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "comment", "comment_color", "file_path", "original_filename", "created_at"],
-  annexes: ["id", "contract_id", "date", "amount", "status", "payment_status", "partial_payment_amount", "file_path", "original_filename", "created_at"],
+  objects: ["id", "name", "customer", "address", "comment", "folder_created_date", "is_ooo", "is_ip", "created_at"],
+  commercial_proposals: ["id", "object_id", "number", "date", "amount", "status", "business_type", "advance_percent", "comment", "file_path", "original_filename", "created_at"],
+  contracts: ["id", "object_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "business_type", "advance_percent", "comment", "comment_color", "file_path", "original_filename", "created_at"],
+  annexes: ["id", "contract_id", "date", "amount", "status", "payment_status", "partial_payment_amount", "advance_percent", "file_path", "original_filename", "created_at"],
   secondary_documents: ["id", "parent_type", "parent_id", "doc_type", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "file_path", "original_filename", "created_at"],
 };
 const FILE_TABLES = ["commercial_proposals", "contracts", "annexes", "secondary_documents"];
@@ -89,10 +90,12 @@ function createStore(userDataPath) {
   function normalizeImportedRow(row, table, zip) {
     const result = {};
     for (const column of TABLE_COLUMNS[table]) {
-      if (column === "amount" || column === "partial_payment_amount") {
+      if (column === "amount" || column === "partial_payment_amount" || column === "advance_percent") {
         result[column] = normalizeMoney(row[column]);
       } else if (column.endsWith("_id") || column === "id" || column === "parent_id") {
         result[column] = Number(row[column]);
+      } else if (column === "is_ooo" || column === "is_ip") {
+        result[column] = Number(row[column]) ? 1 : 0;
       } else {
         result[column] = row[column] === "" ? null : row[column];
       }
@@ -144,6 +147,20 @@ function createStore(userDataPath) {
     }
   }
 
+  function normalizeBusinessType(value) {
+    if (value === undefined || value === null || value === "") return null;
+    assertEnum(value, BUSINESS_TYPES, "business_type");
+    return value;
+  }
+
+  function cascadeObjectBusinessType(objectId, businessType) {
+    if (businessType === "ooo") {
+      db.prepare("UPDATE objects SET is_ooo = 1 WHERE id = ? AND is_ooo = 0").run(objectId);
+    } else if (businessType === "ip") {
+      db.prepare("UPDATE objects SET is_ip = 1 WHERE id = ? AND is_ip = 0").run(objectId);
+    }
+  }
+
   function normalizeMoney(value) {
     if (value === "" || value === null || value === undefined) return null;
     const number = Number(value);
@@ -151,8 +168,46 @@ function createStore(userDataPath) {
     return number;
   }
 
+  function normalizePercent(value) {
+    if (value === "" || value === null || value === undefined) return null;
+    const number = Number(value);
+    if (Number.isNaN(number)) throw new Error("Аванс должен быть числом");
+    if (number < 0 || number > 100) throw new Error("Аванс должен быть от 0 до 100");
+    return number;
+  }
+
   function paymentPartialAmount(payload) {
-    return payload.payment_status === "partial" ? normalizeMoney(payload.partial_payment_amount) : null;
+    if (payload.payment_status === "partial") return normalizeMoney(payload.partial_payment_amount);
+    if (payload.payment_status === "paid") return normalizeMoney(payload.amount);
+    return null;
+  }
+
+  const sumPaidInvoicesStmt = db.prepare(`
+    SELECT amount, payment_status, partial_payment_amount
+    FROM secondary_documents
+    WHERE parent_type = ? AND parent_id = ? AND doc_type = 'invoice'
+  `);
+
+  function invoicePaidAmount(invoice) {
+    if (invoice.payment_status === "paid") return invoice.amount || 0;
+    if (invoice.payment_status === "partial") return invoice.partial_payment_amount || 0;
+    return 0;
+  }
+
+  function sumPaidInvoices(parentType, parentId) {
+    return sumPaidInvoicesStmt.all(parentType, parentId).reduce((sum, invoice) => sum + invoicePaidAmount(invoice), 0);
+  }
+
+  function deriveDocumentPayment(amount, paidSum) {
+    if (paidSum <= 0) return { payment_status: "unpaid", partial_payment_amount: null };
+    if (amount && paidSum >= amount) return { payment_status: "paid", partial_payment_amount: null };
+    return { payment_status: "partial", partial_payment_amount: paidSum };
+  }
+
+  function withComputedPayment(row, parentType) {
+    if (!row) return row;
+    const paidSum = sumPaidInvoices(parentType, row.id);
+    return { ...row, ...deriveDocumentPayment(row.amount, paidSum) };
   }
 
   function storeFile(sourceFilePath, originalFilename) {
@@ -235,12 +290,12 @@ function createStore(userDataPath) {
       const createdAt = (date) => `${date}T09:00:00.000Z`;
 
       db.prepare(`
-        INSERT INTO objects (id, name, customer, address, comment, folder_created_date, created_at)
+        INSERT INTO objects (id, name, customer, address, comment, folder_created_date, is_ooo, is_ip, created_at)
         VALUES
-          (1, 'ЖК Северный квартал', 'ООО Северстрой', 'Москва, Северный проспект, 14', 'Монолит, 2 очередь. Проверить закрывающие за июль.', '2026-07-18', @created_1),
-          (2, 'Складской комплекс Восток', 'АО Восток Девелопмент', 'Московская область, промзона Восточная', 'Генподряд, инженерные сети.', '2026-06-02', @created_2),
-          (3, 'БЦ Гурьев Плаза', 'ООО Гурьев Плаза', 'Москва, ул. Правды, 22', 'Отделка общественных зон, высокий приоритет.', '2026-08-19', @created_3),
-          (4, 'Школа на Лесной', 'ГБУ Дирекция строительства', 'Химки, ул. Лесная, 7', 'Тендерная стадия, ждём обратную связь по КП.', '2026-09-03', @created_4)
+          (1, 'ЖК Северный квартал', 'ООО Северстрой', 'Москва, Северный проспект, 14', 'Монолит, 2 очередь. Проверить закрывающие за июль.', '2026-07-18', 1, 0, @created_1),
+          (2, 'Складской комплекс Восток', 'АО Восток Девелопмент', 'Московская область, промзона Восточная', 'Генподряд, инженерные сети.', '2026-06-02', 0, 1, @created_2),
+          (3, 'БЦ Гурьев Плаза', 'ООО Гурьев Плаза', 'Москва, ул. Правды, 22', 'Отделка общественных зон, высокий приоритет.', '2026-08-19', 1, 1, @created_3),
+          (4, 'Школа на Лесной', 'ГБУ Дирекция строительства', 'Химки, ул. Лесная, 7', 'Тендерная стадия, ждём обратную связь по КП.', '2026-09-03', 0, 0, @created_4)
       `).run({
         created_1: createdAt("2026-07-18"),
         created_2: createdAt("2026-06-02"),
@@ -250,11 +305,11 @@ function createStore(userDataPath) {
 
       db.prepare(`
         INSERT INTO commercial_proposals
-          (id, object_id, number, date, amount, status, comment, file_path, original_filename, created_at)
+          (id, object_id, number, date, amount, status, business_type, comment, file_path, original_filename, created_at)
         VALUES
-          (1, 1, 'КП-21', '2026-08-28', 3400000, 'pending', 'кровля', NULL, 'kp-21.pdf', @created_1),
-          (2, 4, 'КП-44/26', '2026-09-08', 5750000, 'not_sent', 'тендер', NULL, 'kp-school-draft.pdf', @created_2),
-          (3, 3, 'КП-39/26', '2026-08-24', 2100000, 'approved', 'витражи', NULL, 'kp-vitraji.pdf', @created_3)
+          (1, 1, 'КП-21', '2026-08-28', 3400000, 'pending', 'ooo', 'кровля', NULL, 'kp-21.pdf', @created_1),
+          (2, 4, 'КП-44/26', '2026-09-08', 5750000, 'not_sent', NULL, 'тендер', NULL, 'kp-school-draft.pdf', @created_2),
+          (3, 3, 'КП-39/26', '2026-08-24', 2100000, 'approved', 'ip', 'витражи', NULL, 'kp-vitraji.pdf', @created_3)
       `).run({
         created_1: createdAt("2026-08-28"),
         created_2: createdAt("2026-09-08"),
@@ -263,12 +318,12 @@ function createStore(userDataPath) {
 
       db.prepare(`
         INSERT INTO contracts
-          (id, object_id, number, date, amount, status, payment_status, partial_payment_amount, comment, comment_color, file_path, original_filename, created_at)
+          (id, object_id, number, date, amount, status, payment_status, partial_payment_amount, business_type, comment, comment_color, file_path, original_filename, created_at)
         VALUES
-          (1, 1, '14-К/26', '2026-07-21', 18400000, 'approved', 'partial', 7000000, 'фасад', 'pink', NULL, 'contract-14-k-26.pdf', @created_1),
-          (2, 2, '08-В/26', '2026-06-07', 9200000, 'pending', 'unpaid', NULL, 'сети', 'violet', NULL, NULL, @created_2),
-          (3, 3, '31-ОЗ/26', '2026-08-30', 12600000, 'approved', 'paid', NULL, 'отделка', 'violet', NULL, 'contract-31-oz-26.pdf', @created_3),
-          (4, 4, 'без номера', '2026-09-12', 5750000, 'pending', 'partial', 1500000, 'срочно', 'pink', NULL, 'contract-school-scan.pdf', @created_4)
+          (1, 1, '14-К/26', '2026-07-21', 18400000, 'approved', 'partial', 7000000, 'ooo', 'фасад', 'pink', NULL, 'contract-14-k-26.pdf', @created_1),
+          (2, 2, '08-В/26', '2026-06-07', 9200000, 'pending', 'unpaid', NULL, 'ip', 'сети', 'violet', NULL, NULL, @created_2),
+          (3, 3, '31-ОЗ/26', '2026-08-30', 12600000, 'approved', 'paid', NULL, 'ooo', 'отделка', 'violet', NULL, 'contract-31-oz-26.pdf', @created_3),
+          (4, 4, 'без номера', '2026-09-12', 5750000, 'pending', 'partial', 1500000, NULL, 'срочно', 'pink', NULL, 'contract-school-scan.pdf', @created_4)
       `).run({
         created_1: createdAt("2026-07-21"),
         created_2: createdAt("2026-06-07"),
@@ -327,8 +382,8 @@ function createStore(userDataPath) {
 
   function createObject(payload) {
     const stmt = db.prepare(`
-      INSERT INTO objects (name, customer, address, comment, folder_created_date, created_at)
-      VALUES (@name, @customer, @address, @comment, @folder_created_date, @created_at)
+      INSERT INTO objects (name, customer, address, comment, folder_created_date, is_ooo, is_ip, created_at)
+      VALUES (@name, @customer, @address, @comment, @folder_created_date, @is_ooo, @is_ip, @created_at)
     `);
     const info = stmt.run({
       name: String(payload.name || "").trim(),
@@ -336,6 +391,8 @@ function createStore(userDataPath) {
       address: payload.address || "",
       comment: payload.comment || "",
       folder_created_date: payload.folder_created_date || null,
+      is_ooo: payload.is_ooo ? 1 : 0,
+      is_ip: payload.is_ip ? 1 : 0,
       created_at: now(),
     });
     return getObjectDetails(info.lastInsertRowid);
@@ -348,7 +405,9 @@ function createStore(userDataPath) {
           customer = @customer,
           address = @address,
           comment = @comment,
-          folder_created_date = @folder_created_date
+          folder_created_date = @folder_created_date,
+          is_ooo = @is_ooo,
+          is_ip = @is_ip
       WHERE id = @id
     `).run({
       id: payload.id,
@@ -357,6 +416,8 @@ function createStore(userDataPath) {
       address: payload.address || "",
       comment: payload.comment || "",
       folder_created_date: payload.folder_created_date || null,
+      is_ooo: payload.is_ooo ? 1 : 0,
+      is_ip: payload.is_ip ? 1 : 0,
     });
     return getObjectDetails(payload.id);
   }
@@ -368,29 +429,34 @@ function createStore(userDataPath) {
 
   function createCommercialProposal(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
+    const businessType = normalizeBusinessType(payload.business_type);
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO commercial_proposals
-        (object_id, number, date, amount, status, comment, file_path, original_filename, created_at)
+        (object_id, number, date, amount, status, business_type, advance_percent, comment, file_path, original_filename, created_at)
       VALUES
-        (@object_id, @number, @date, @amount, @status, @comment, @file_path, @original_filename, @created_at)
+        (@object_id, @number, @date, @amount, @status, @business_type, @advance_percent, @comment, @file_path, @original_filename, @created_at)
     `).run({
       object_id: payload.object_id,
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
+      business_type: businessType,
+      advance_percent: normalizePercent(payload.advance_percent),
       comment: payload.comment || "",
       file_path: file.file_path,
       original_filename: file.original_filename,
       created_at: now(),
     });
+    cascadeObjectBusinessType(payload.object_id, businessType);
     return getCommercialProposal(info.lastInsertRowid);
   }
 
   function updateCommercialProposal(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
     const current = getCommercialProposal(payload.id);
+    const businessType = payload.business_type !== undefined ? normalizeBusinessType(payload.business_type) : current.business_type;
     const file = replaceStoredFile(current, payload);
     db.prepare(`
       UPDATE commercial_proposals
@@ -398,6 +464,8 @@ function createStore(userDataPath) {
           date = @date,
           amount = @amount,
           status = @status,
+          business_type = @business_type,
+          advance_percent = @advance_percent,
           comment = @comment,
           file_path = @file_path,
           original_filename = @original_filename
@@ -408,10 +476,13 @@ function createStore(userDataPath) {
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
+      business_type: businessType,
+      advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
       comment: payload.comment || "",
       file_path: file.file_path,
       original_filename: file.original_filename,
     });
+    cascadeObjectBusinessType(current.object_id, businessType);
     return getCommercialProposal(payload.id);
   }
 
@@ -422,7 +493,6 @@ function createStore(userDataPath) {
 
   function createContractFromProposal(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
-    assertEnum(payload.payment_status, PAYMENT_STATUSES, "payment_status");
     assertEnum(payload.comment_color || "pink", COMMENT_COLORS, "comment_color");
 
     const createFromProposal = db.transaction(() => {
@@ -431,26 +501,31 @@ function createStore(userDataPath) {
         throw new Error("КП не найдено");
       }
 
+      const businessType = normalizeBusinessType(payload.business_type) || proposal.business_type || null;
+      const advancePercent = payload.advance_percent !== undefined && payload.advance_percent !== ""
+        ? normalizePercent(payload.advance_percent)
+        : proposal.advance_percent;
       const file = storeFile(payload.sourceFilePath, payload.original_filename);
       const contractInfo = db.prepare(`
         INSERT INTO contracts
-          (object_id, number, date, amount, status, payment_status, partial_payment_amount, comment, comment_color, file_path, original_filename, created_at)
+          (object_id, number, date, amount, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
         VALUES
-          (@object_id, @number, @date, @amount, @status, @payment_status, @partial_payment_amount, @comment, @comment_color, @file_path, @original_filename, @created_at)
+          (@object_id, @number, @date, @amount, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
       `).run({
         object_id: proposal.object_id,
         number: payload.number || "",
         date: payload.date || null,
         amount: normalizeMoney(payload.amount),
         status: payload.status,
-        payment_status: payload.payment_status,
-        partial_payment_amount: paymentPartialAmount(payload),
+        business_type: businessType,
+        advance_percent: advancePercent,
         comment: payload.comment || proposal.comment || "",
         comment_color: payload.comment_color || "pink",
         file_path: file.file_path,
         original_filename: file.original_filename,
         created_at: now(),
       });
+      cascadeObjectBusinessType(proposal.object_id, businessType);
 
       db.prepare(`
         INSERT INTO secondary_documents
@@ -477,36 +552,37 @@ function createStore(userDataPath) {
 
   function createContract(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
-    assertEnum(payload.payment_status, PAYMENT_STATUSES, "payment_status");
     assertEnum(payload.comment_color || "pink", COMMENT_COLORS, "comment_color");
+    const businessType = normalizeBusinessType(payload.business_type);
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO contracts
-        (object_id, number, date, amount, status, payment_status, partial_payment_amount, comment, comment_color, file_path, original_filename, created_at)
+        (object_id, number, date, amount, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
       VALUES
-        (@object_id, @number, @date, @amount, @status, @payment_status, @partial_payment_amount, @comment, @comment_color, @file_path, @original_filename, @created_at)
+        (@object_id, @number, @date, @amount, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
     `).run({
       object_id: payload.object_id,
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
-      payment_status: payload.payment_status,
-      partial_payment_amount: paymentPartialAmount(payload),
+      business_type: businessType,
+      advance_percent: normalizePercent(payload.advance_percent),
       comment: payload.comment || "",
       comment_color: payload.comment_color || "pink",
       file_path: file.file_path,
       original_filename: file.original_filename,
       created_at: now(),
     });
+    cascadeObjectBusinessType(payload.object_id, businessType);
     return getContract(info.lastInsertRowid);
   }
 
   function updateContract(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
-    assertEnum(payload.payment_status, PAYMENT_STATUSES, "payment_status");
     assertEnum(payload.comment_color || "pink", COMMENT_COLORS, "comment_color");
     const current = getContract(payload.id);
+    const businessType = payload.business_type !== undefined ? normalizeBusinessType(payload.business_type) : current.business_type;
     const file = replaceStoredFile(current, payload);
     db.prepare(`
       UPDATE contracts
@@ -514,8 +590,8 @@ function createStore(userDataPath) {
           date = @date,
           amount = @amount,
           status = @status,
-          payment_status = @payment_status,
-          partial_payment_amount = @partial_payment_amount,
+          business_type = @business_type,
+          advance_percent = @advance_percent,
           comment = @comment,
           comment_color = @comment_color,
           file_path = @file_path,
@@ -527,13 +603,14 @@ function createStore(userDataPath) {
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
-      payment_status: payload.payment_status,
-      partial_payment_amount: paymentPartialAmount(payload),
+      business_type: businessType,
+      advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
       comment: payload.comment || "",
       comment_color: payload.comment_color || "pink",
       file_path: file.file_path,
       original_filename: file.original_filename,
     });
+    cascadeObjectBusinessType(current.object_id, businessType);
     return getContract(payload.id);
   }
 
@@ -544,20 +621,18 @@ function createStore(userDataPath) {
 
   function createAnnex(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
-    assertEnum(payload.payment_status, PAYMENT_STATUSES, "payment_status");
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO annexes
-        (contract_id, date, amount, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
+        (contract_id, date, amount, status, payment_status, partial_payment_amount, advance_percent, file_path, original_filename, created_at)
       VALUES
-        (@contract_id, @date, @amount, @status, @payment_status, @partial_payment_amount, @file_path, @original_filename, @created_at)
+        (@contract_id, @date, @amount, @status, 'unpaid', NULL, @advance_percent, @file_path, @original_filename, @created_at)
     `).run({
       contract_id: payload.contract_id,
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
-      payment_status: payload.payment_status,
-      partial_payment_amount: paymentPartialAmount(payload),
+      advance_percent: normalizePercent(payload.advance_percent),
       file_path: file.file_path,
       original_filename: file.original_filename,
       created_at: now(),
@@ -567,7 +642,6 @@ function createStore(userDataPath) {
 
   function updateAnnex(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
-    assertEnum(payload.payment_status, PAYMENT_STATUSES, "payment_status");
     const current = getAnnex(payload.id);
     const file = replaceStoredFile(current, payload);
     db.prepare(`
@@ -575,8 +649,7 @@ function createStore(userDataPath) {
       SET date = @date,
           amount = @amount,
           status = @status,
-          payment_status = @payment_status,
-          partial_payment_amount = @partial_payment_amount,
+          advance_percent = @advance_percent,
           file_path = @file_path,
           original_filename = @original_filename
       WHERE id = @id
@@ -585,8 +658,7 @@ function createStore(userDataPath) {
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
-      payment_status: payload.payment_status,
-      partial_payment_amount: paymentPartialAmount(payload),
+      advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
       file_path: file.file_path,
       original_filename: file.original_filename,
     });
@@ -743,7 +815,7 @@ function createStore(userDataPath) {
   }
 
   function getContract(id) {
-    return db.prepare("SELECT * FROM contracts WHERE id = ?").get(id);
+    return withComputedPayment(db.prepare("SELECT * FROM contracts WHERE id = ?").get(id), "contract");
   }
 
   function getCommercialProposal(id) {
@@ -751,7 +823,7 @@ function createStore(userDataPath) {
   }
 
   function getAnnex(id) {
-    return db.prepare("SELECT * FROM annexes WHERE id = ?").get(id);
+    return withComputedPayment(db.prepare("SELECT * FROM annexes WHERE id = ?").get(id), "annex");
   }
 
   function getSecondaryDocument(id) {
@@ -771,14 +843,15 @@ function createStore(userDataPath) {
 
     object.contracts = contracts.map((contract) => {
       const annexes = annexStmt.all(contract.id).map((annex) => ({
-        ...annex,
-        documents: docsForAnnex.all(annex.id),
+        ...withComputedPayment(annex, "annex"),
+        business_type: contract.business_type,
+        documents: docsForAnnex.all(annex.id).map((doc) => ({ ...doc, business_type: contract.business_type })),
       }));
 
       return {
-        ...contract,
+        ...withComputedPayment(contract, "contract"),
         annexes,
-        documents: docsForContract.all(contract.id),
+        documents: docsForContract.all(contract.id).map((doc) => ({ ...doc, business_type: contract.business_type })),
       };
     });
 
@@ -786,7 +859,7 @@ function createStore(userDataPath) {
   }
 
   function listRegistryDocuments() {
-    return db.prepare(`
+    const rows = db.prepare(`
       SELECT * FROM (
         SELECT
           'commercial_proposal' AS source_type,
@@ -800,6 +873,7 @@ function createStore(userDataPath) {
           'commercial_proposal' AS doc_type,
           cp.number AS document_number,
           'primary' AS category,
+          cp.business_type,
           cp.date,
           cp.amount,
           cp.status,
@@ -824,6 +898,7 @@ function createStore(userDataPath) {
           'contract' AS doc_type,
           c.number AS document_number,
           'primary' AS category,
+          c.business_type,
           c.date,
           c.amount,
           c.status,
@@ -848,6 +923,7 @@ function createStore(userDataPath) {
           'annex' AS doc_type,
           CAST(a.id AS TEXT) AS document_number,
           'primary' AS category,
+          c.business_type,
           a.date,
           a.amount,
           a.status,
@@ -873,6 +949,7 @@ function createStore(userDataPath) {
           sd.doc_type,
           sd.number AS document_number,
           'secondary' AS category,
+          c.business_type,
           sd.date,
           sd.amount,
           sd.status,
@@ -898,6 +975,7 @@ function createStore(userDataPath) {
           sd.doc_type,
           sd.number AS document_number,
           'secondary' AS category,
+          c.business_type,
           sd.date,
           sd.amount,
           sd.status,
@@ -912,6 +990,16 @@ function createStore(userDataPath) {
       )
       ORDER BY date DESC, source_id DESC
     `).all();
+
+    return rows.map((row) => {
+      if (row.source_type === "contract") {
+        return { ...row, ...deriveDocumentPayment(row.amount, sumPaidInvoices("contract", row.source_id)) };
+      }
+      if (row.source_type === "annex") {
+        return { ...row, ...deriveDocumentPayment(row.amount, sumPaidInvoices("annex", row.annex_id)) };
+      }
+      return row;
+    });
   }
 
   return {
@@ -951,6 +1039,8 @@ function migrate(db) {
       address TEXT NOT NULL DEFAULT '',
       comment TEXT NOT NULL DEFAULT '',
       folder_created_date TEXT,
+      is_ooo INTEGER NOT NULL DEFAULT 0,
+      is_ip INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -961,6 +1051,8 @@ function migrate(db) {
       date TEXT,
       amount REAL,
       status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      business_type TEXT CHECK (business_type IN ('ooo', 'ip')),
+      advance_percent REAL,
       comment TEXT NOT NULL DEFAULT '',
       file_path TEXT,
       original_filename TEXT,
@@ -976,6 +1068,8 @@ function migrate(db) {
       status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
+      business_type TEXT CHECK (business_type IN ('ooo', 'ip')),
+      advance_percent REAL,
       comment TEXT NOT NULL DEFAULT '',
       comment_color TEXT NOT NULL DEFAULT 'pink' CHECK (comment_color IN ('pink', 'violet')),
       file_path TEXT,
@@ -991,6 +1085,7 @@ function migrate(db) {
       status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
+      advance_percent REAL,
       file_path TEXT,
       original_filename TEXT,
       created_at TEXT NOT NULL
@@ -1025,6 +1120,13 @@ function migrate(db) {
   addColumnIfMissing(db, "annexes", "partial_payment_amount", "REAL");
   addColumnIfMissing(db, "secondary_documents", "number", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "secondary_documents", "partial_payment_amount", "REAL");
+  addColumnIfMissing(db, "objects", "is_ooo", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "objects", "is_ip", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "contracts", "business_type", "TEXT");
+  addColumnIfMissing(db, "commercial_proposals", "business_type", "TEXT");
+  addColumnIfMissing(db, "commercial_proposals", "advance_percent", "REAL");
+  addColumnIfMissing(db, "contracts", "advance_percent", "REAL");
+  addColumnIfMissing(db, "annexes", "advance_percent", "REAL");
 }
 
 function addColumnIfMissing(db, table, column, definition) {
